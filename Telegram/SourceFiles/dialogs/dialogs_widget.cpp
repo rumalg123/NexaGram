@@ -1623,26 +1623,28 @@ void Widget::updateChatStatusToolbarTheme() {
 	palette.setColor(QPalette::Window, st::dialogsBg->c);
 	_statusToolbar->setPalette(palette);
 
-	const auto color = [](const style::color &value) {
-		return value->c.name(QColor::HexArgb);
+	const auto color = [](const auto &value) {
+		return value->c.name(QColor::HexRgb);
 	};
 	_statusToolbar->setStyleSheet(
-		u"QToolButton#chatStatusFilterButton {"
+		QString::fromLatin1(
+			"QToolButton#chatStatusFilterButton {"
 			" border: none; border-radius: 6px; padding: 4px 3px;"
 			" background: transparent; color: %1;"
-		"}"
-		"QToolButton#chatStatusFilterButton:hover:!checked {"
+			"}"
+			"QToolButton#chatStatusFilterButton:hover:!checked {"
 			" background: %2;"
-		"}"
-		"QToolButton#chatStatusFilterButton:checked {"
+			"}"
+			"QToolButton#chatStatusFilterButton:checked {"
 			" background: %3; color: %4;"
-		"}"
-		"QToolButton#chatStatusFilterButton:focus {"
+			"}"
+			"QToolButton#chatStatusFilterButton:focus {"
 			" border: 1px solid %3;"
-		"}"
-		"QLabel#chatStatusSummary {"
+			"}"
+			"QLabel#chatStatusSummary {"
 			" background: transparent; color: %5;"
-		"}"_q.arg(
+			"}")
+		.arg(
 			color(st::dialogsNameFg),
 			color(st::dialogsBgOver),
 			color(st::windowBgActive),
