@@ -166,6 +166,26 @@ jobs:
           key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
 
+      - name: Reclaim unused runner disk space.
+        shell: pwsh
+        run: |
+          # The debug dependency build can exhaust the default Windows runner.
+          # Keep Visual Studio, Windows SDK, Python, CMake, Git, and caches intact.
+          $unused = @(
+            'C:\Program Files\dotnet',
+            'C:\Program Files\Docker',
+            'C:\ProgramData\DockerDesktop',
+            'C:\Android',
+            'C:\Program Files\MongoDB',
+            'C:\Program Files\PostgreSQL'
+          )
+          foreach ($path in $unused) {
+            if (Test-Path $path) {
+              Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Get-PSDrive -Name C | Format-List Name,Used,Free
+
       - name: Libraries.
         run: |
           %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent ${{ matrix.qt }}
@@ -228,6 +248,7 @@ jobs:
           cd %TBUILD%\%REPO_NAME%\Telegram
 
           call configure.bat ^
+          -Wno-error=non-target-directive ^
           %TDESKTOP_BUILD_GENERATOR% ^
           %TDESKTOP_BUILD_ARCH% ^
           ${{ matrix.qt }} ^

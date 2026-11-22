@@ -4825,7 +4825,7 @@ void Widget::updateControlsGeometry() {
 				0, scrollTop + tabsSkip, scrollWidth, toolbarHeight);
 		}
 		const auto scrollHeight = std::max(
-			0, height() - scrollTop - tabsSkip - toolbarHeight - bottomSkip);
+			0, int(height() - scrollTop - tabsSkip - toolbarHeight - bottomSkip));
 		const auto wasScrollHeight = _scroll->height();
 		_scroll->setGeometry(
 			0,
