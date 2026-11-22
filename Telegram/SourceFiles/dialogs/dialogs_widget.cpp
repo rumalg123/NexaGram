@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/ui/dialogs_suggestions.h"
 #include "dialogs/ui/dialogs_top_bar_suggestion_content.h"
 #include "dialogs/dialogs_inner_widget.h"
+#include "dialogs/dialogs_indexed_list.h"
 #include "dialogs/dialogs_search_from_controllers.h"
 #include "dialogs/dialogs_top_bar_suggestion.h"
 #include "dialogs/dialogs_quick_action.h"
@@ -102,6 +103,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QMimeData>
 #include <QtGui/QTextBlock>
+#include <QtWidgets/QHBoxLayout>
+#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/QLabel>
+#include <QtWidgets/QToolButton>
 #include <QtWidgets/QScrollBar>
 #include <QtWidgets/QTextEdit>
 
@@ -263,6 +268,8 @@ Widget::Widget(
 	_scroll->setOverscrollPullDistances(st::dialogsStoriesFull.height, 0);
 	_innerList = _scroll->setOwnedWidget(
 		object_ptr<Ui::VerticalLayout>(this));
+	_statusToolbar = _innerList->add(object_ptr<Ui::RpWidget>(_innerList));
+	_statusToolbar->setFixedHeight(58);
 	_inner = _innerList->add(object_ptr<InnerWidget>(
 		_innerList,
 		controller,
@@ -270,6 +277,39 @@ Widget::Widget(
 			_childListPeerId.value(),
 			_childListShown.value(),
 			makeChildListShown)));
+	if (_layout == Layout::Main) {
+		auto layout = new QVBoxLayout(_statusToolbar);
+		layout->setContentsMargins(8, 3, 8, 3);
+		layout->setSpacing(1);
+		auto buttons = new QHBoxLayout();
+		buttons->setContentsMargins(0, 0, 0, 0);
+		buttons->setSpacing(2);
+		const auto filters = std::array{
+			ChatStatusFilter::None, ChatStatusFilter::Deleted,
+			ChatStatusFilter::Unavailable, ChatStatusFilter::Restricted,
+		};
+		for (auto i = 0; i != int(filters.size()); ++i) {
+			const auto button = new QToolButton(_statusToolbar);
+			button->setCheckable(true);
+			button->setAutoRaise(true);
+			button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+			button->setSizePolicy(
+				QSizePolicy::Expanding, QSizePolicy::Preferred);
+			const auto filter = filters[i];
+			QObject::connect(button, &QToolButton::clicked, this, [=] {
+				setChatStatusFilter(filter);
+			});
+			_statusButtons[i] = button;
+			buttons->addWidget(button);
+		}
+		layout->addLayout(buttons);
+		_statusSummary = new QLabel(_statusToolbar);
+		_statusSummary->setAlignment(Qt::AlignCenter);
+		_statusSummary->setAccessibleName(u"Local chat status count"_q);
+		layout->addWidget(_statusSummary);
+	} else {
+		_statusToolbar->hide();
+	}
 	controller->activeChatsFilter(
 	) | rpl::on_next([=](FilterId id) {
 		switchToChatsFilter(id);
@@ -291,7 +331,21 @@ Widget::Widget(
 	_inner->updated(
 	) | rpl::on_next([=] {
 		listScrollUpdated();
+		updateChatStatusToolbar();
 	}, lifetime());
+	rpl::merge(
+		session().data().chatsListChanges() | rpl::to_empty,
+		session().data().chatsListLoadedEvents() | rpl::to_empty,
+		session().changes().peerUpdates(
+			Data::PeerUpdate::Flag::Name
+			| Data::PeerUpdate::Flag::FullInfo
+			| Data::PeerUpdate::Flag::UnavailableReason
+			| Data::PeerUpdate::Flag::Rights
+			| Data::PeerUpdate::Flag::ChannelAmIn) | rpl::to_empty
+	) | rpl::on_next([=] {
+		updateChatStatusToolbar();
+	}, lifetime());
+	updateChatStatusToolbar();
 
 	rpl::combine(
 		session().api().dialogsLoadMayBlockByDate(),
@@ -1533,6 +1587,83 @@ void Widget::setupSupportMode() {
 	) | rpl::to_empty);
 }
 
+void Widget::setChatStatusFilter(ChatStatusFilter filter) {
+	if (_layout != Layout::Main) {
+		return;
+	}
+	auto state = SearchState{};
+	state.tab = ChatSearchTab::MyMessages;
+	switch (filter) {
+	case ChatStatusFilter::Deleted: state.query = u"is:deleted"_q; break;
+	case ChatStatusFilter::Unavailable: state.query = u"is:unavailable"_q; break;
+	case ChatStatusFilter::Restricted: state.query = u"is:restricted"_q; break;
+	case ChatStatusFilter::None: break;
+	}
+	searchMessages(std::move(state));
+	_scroll->scrollToY(0);
+}
+
+void Widget::updateChatStatusToolbar() {
+	if (!_statusToolbar || _layout != Layout::Main) {
+		return;
+	}
+	const auto visible = !_openedFolder && !_openedForum
+		&& !_openedCommunity && !_childList;
+	_statusToolbar->setVisible(visible);
+	if (!visible) {
+		return;
+	}
+	auto counts = std::array<int, 4>{};
+	auto seen = base::flat_set<PeerId>();
+	const auto append = [&](not_null<IndexedList*> list) {
+		for (const auto &row : *list) {
+			const auto peer = row->key().peer();
+			if (!peer || !seen.emplace(peer->id).second) {
+				continue;
+			}
+			++counts[0];
+			counts[1] += PeerMatchesChatStatus(peer, ChatStatusFilter::Deleted);
+			counts[2] += PeerMatchesChatStatus(peer, ChatStatusFilter::Unavailable);
+			counts[3] += PeerMatchesChatStatus(peer, ChatStatusFilter::Restricted);
+		}
+	};
+	const auto owner = &session().data();
+	append(owner->chatsList()->indexed());
+	if (const auto archive = owner->folderLoaded(Data::Folder::kId)) {
+		append(archive->chatsList()->indexed());
+	}
+	append(owner->contactsNoChatsList());
+
+	const auto status = (_searchState.tab == ChatSearchTab::MyMessages
+		&& !_searchState.inChat)
+		? ParseChatStatusFilter(_searchState.query)
+		: ChatStatusFilter::None;
+	const auto filterValues = std::array{
+		ChatStatusFilter::None, ChatStatusFilter::Deleted,
+		ChatStatusFilter::Unavailable, ChatStatusFilter::Restricted,
+	};
+	const auto labels = std::array{
+		u"All"_q, u"Deleted"_q, u"Unavailable"_q, u"Restricted"_q,
+	};
+	for (auto i = 0; i != int(_statusButtons.size()); ++i) {
+		const auto button = _statusButtons[i];
+		if (!button) {
+			continue;
+		}
+		button->setText(u"%1 (%2)"_q.arg(labels[i]).arg(counts[i]));
+		button->setAccessibleName(
+			u"%1: %2 locally loaded chats"_q.arg(labels[i]).arg(counts[i]));
+		button->setChecked(filterValues[i] == status
+			&& (status != ChatStatusFilter::None || _searchState.query.isEmpty()));
+	}
+	const auto selected = status == ChatStatusFilter::Deleted ? counts[1]
+		: status == ChatStatusFilter::Unavailable ? counts[2]
+		: status == ChatStatusFilter::Restricted ? counts[3] : counts[0];
+	_statusSummary->setText(
+		u"%1 loaded peers. Counts include archived chats and contacts."_q
+			.arg(selected));
+}
+
 void Widget::setupMainMenuToggle() {
 	_mainMenu.under->setClickedCallback([=] {
 		_mainMenu.toggle->clicked({}, Qt::LeftButton);
@@ -2209,6 +2340,7 @@ void Widget::changeOpenedFolder(Data::Folder *folder, anim::type animated) {
 		controller()->closeForum();
 		_openedFolder = folder;
 		_inner->changeOpenedFolder(folder);
+		updateChatStatusToolbar();
 		if (!GetEnhancedBool("hide_stories") && _stories) {
 			_stories->setShowTitle(folder != nullptr);
 			storiesExplicitCollapse();
@@ -2270,6 +2402,7 @@ void Widget::changeOpenedForum(Data::Forum *forum, anim::type animated) {
 		_searchWithPostsPreview = computeSearchWithPostsPreview();
 		_api.request(base::take(_topicSearchRequest)).cancel();
 		_inner->changeOpenedForum(forum);
+		updateChatStatusToolbar();
 		storiesToggleExplicitExpand(false);
 		updateFrozenAccountBar();
 		updateTopBarSuggestions();
@@ -2289,6 +2422,7 @@ void Widget::changeOpenedCommunity(
 		controller()->closeForum();
 		_openedCommunity = community;
 		_inner->changeOpenedCommunity(community);
+		updateChatStatusToolbar();
 		updateFrozenAccountBar();
 		updateTopBarSuggestions();
 		updateCommunityRequestsBubble();
@@ -4234,6 +4368,7 @@ bool Widget::applySearchState(SearchState state) {
 		setSearchQuery(_searchState.query);
 	}
 	_inner->applySearchState(_searchState);
+	updateChatStatusToolbar();
 	updateCommunityOverlaysVisibility();
 
 	if (!_postponeProcessSearchFocusChange) {

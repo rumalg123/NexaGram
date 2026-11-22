@@ -1206,6 +1206,45 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 		const auto cacheRatio = style::DevicePixelRatio();
 		const auto cacheKey = RowsCacheKey(row->entry());
 		const auto cacheSize = QSize(fullWidth, row->height()) * cacheRatio;
+		const auto paintStatusBadge = [&] {
+			if (context.narrow || fullWidth < 160) {
+				return;
+			}
+			const auto peer = key.peer();
+			const auto status = PeerMatchesChatStatus(
+				peer, ChatStatusFilter::Deleted) ? u"DEL"_q
+				: PeerMatchesChatStatus(
+					peer, ChatStatusFilter::Unavailable) ? u"UNV"_q
+				: PeerMatchesChatStatus(
+					peer, ChatStatusFilter::Restricted) ? u"RES"_q
+				: QString();
+			if (status.isEmpty()) {
+				return;
+			}
+			const auto background = (status == u"DEL"_q)
+				? QColor(96, 102, 112)
+				: (status == u"UNV"_q)
+				? QColor(172, 89, 45)
+				: QColor(133, 99, 175);
+			const auto badge = QRect(
+				st::defaultDialogRow.padding.left()
+					+ st::defaultDialogRow.photoSize - 24,
+				row->height() - 24,
+				34,
+				16);
+			p.save();
+			p.setRenderHint(QPainter::Antialiasing, true);
+			p.setBrush(background);
+			p.setPen(Qt::NoPen);
+			p.drawRoundedRect(badge, 5, 5);
+			auto font = p.font();
+			font.setPixelSize(9);
+			font.setBold(true);
+			p.setFont(font);
+			p.setPen(Qt::white);
+			p.drawText(badge, Qt::AlignCenter, status);
+			p.restore();
+		};
 		const auto cacheSelected = _menuRow.key
 			? (row->key() == _menuRow.key)
 			: _chatPreviewRow.key
@@ -1233,6 +1272,7 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 				cacheRatio,
 				[](QImage &) {});
 			paintCachedRowOverlays(p, row, cacheKey, context);
+			paintStatusBadge();
 			return;
 		}
 
@@ -1348,6 +1388,7 @@ void InnerWidget::paintEvent(QPaintEvent *e) {
 		} else {
 			Ui::RowPainter::Paint(p, row, videoUserpic, context);
 		}
+		paintStatusBadge();
 		if (context.quickActionContext) {
 			context.quickActionContext = nullptr;
 		}

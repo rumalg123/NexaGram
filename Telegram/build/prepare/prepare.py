@@ -858,6 +858,7 @@ winarm:
     echo armasm64 fails with 'syntax error in expression: tbnz x14, #4, 8f' as if this instruction is unknown/unsupported.
     git revert --no-edit d503bb0ccaf104b2f13da0f092e09cc9411b3297
 win:
+    python -c "from pathlib import Path; p=Path('include/compat/msvc/stdatomic.h'); s=p.read_text(); old='#if defined(__clang__) && __has_include_next(<stdatomic.h>)'; assert old in s; p.write_text(s.replace(old, '#ifndef __has_include_next\\n#define __has_include_next(x) 0\\n#endif\\n' + old, 1))"
     set FILE=cross-file.txt
     echo [binaries] > %FILE%
     echo c = 'cl' >> %FILE%

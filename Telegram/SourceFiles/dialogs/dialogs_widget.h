@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "api/api_peer_search.h"
+#include <array>
 #include "base/timer.h"
 #include "dialogs/dialogs_key.h"
 #include "window/section_widget.h"
@@ -18,6 +19,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_single_message_search.h"
 
 class ChannelData;
+class QLabel;
+class QToolButton;
 
 namespace MTP {
 class Error;
@@ -212,6 +215,8 @@ private:
 	void setupFrozenAccountBar();
 	void setupConnectingWidget();
 	void setupMainMenuToggle();
+	void setChatStatusFilter(ChatStatusFilter filter);
+	void updateChatStatusToolbar();
 	void setupMoreChatsBar();
 	void switchToChatsFilter(FilterId id);
 	[[nodiscard]] QPixmap grabForChatsFilterSlide();
@@ -379,6 +384,9 @@ private:
 
 	object_ptr<Ui::ElasticScroll> _scroll;
 	Ui::VerticalLayout *_innerList = nullptr;
+	Ui::RpWidget *_statusToolbar = nullptr;
+	std::array<QToolButton*, 4> _statusButtons = {};
+	QLabel *_statusSummary = nullptr;
 	InnerWidget *_inner = nullptr;
 	std::unique_ptr<Suggestions> _suggestions;
 	std::vector<std::unique_ptr<Suggestions>> _hidingSuggestions;
