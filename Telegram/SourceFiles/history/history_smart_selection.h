@@ -11,6 +11,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 #include "data/data_media_types.h"
 
+#include <QtCore/QRegularExpression>
+
 namespace HistoryView {
 
 // Smart Select works on messages already loaded by the current chat view.
@@ -23,13 +25,15 @@ enum class SmartMessageFilter : uchar {
 	Text,
 	Sender,
 	Filename,
+	FilenameRegex,
 };
 
 [[nodiscard]] inline bool SmartMessageMatches(
 		not_null<HistoryItem*> item,
 		SmartMessageFilter filter,
 		const PeerData *sender = nullptr,
-		const QString &filenameQuery = QString()) {
+		const QString &filenameQuery = QString(),
+		const QRegularExpression *filenameRegex = nullptr) {
 	if (!item->isRegular() || item->isService()) {
 		return false;
 	}
@@ -38,6 +42,10 @@ enum class SmartMessageFilter : uchar {
 	}
 	const auto media = item->media();
 	const auto document = media ? media->document() : nullptr;
+	if (filter == SmartMessageFilter::FilenameRegex) {
+		return document && filenameRegex && filenameRegex->isValid()
+			&& filenameRegex->match(document->filename()).hasMatch();
+	}
 	if (filter == SmartMessageFilter::Filename) {
 		// All words are required, in any order. This matches release names
 		// like "[Judas] Overlord S04E02 [720p].mkv" for "overlord 720p mkv".
@@ -79,6 +87,7 @@ enum class SmartMessageFilter : uchar {
 			&& (!media || media->webpage());
 	case SmartMessageFilter::Sender:
 	case SmartMessageFilter::Filename:
+	case SmartMessageFilter::FilenameRegex:
 		return false;
 	}
 	return false;
