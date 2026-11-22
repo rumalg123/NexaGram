@@ -4261,6 +4261,41 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		}
 	}
 
+	if (!hasSelectRestriction() && (leaderOrSelf || hasSelectedItems())) {
+		auto smart = std::make_unique<Ui::PopupMenu>(
+			this, st::popupMenuWithIcons);
+		const auto add = [&](HistoryView::SmartMessageFilter filter,
+				const QString &label) {
+			smart->addAction(label, [=] {
+				smartSelectMessages(filter);
+			}, &st::menuIconSelect);
+		};
+		add(HistoryView::SmartMessageFilter::Photos,
+			tr::lng_context_smart_select_photos(tr::now));
+		add(HistoryView::SmartMessageFilter::Videos,
+			tr::lng_context_smart_select_videos(tr::now));
+		add(HistoryView::SmartMessageFilter::Files,
+			tr::lng_context_smart_select_files(tr::now));
+		add(HistoryView::SmartMessageFilter::Audio,
+			tr::lng_context_smart_select_audio(tr::now));
+		add(HistoryView::SmartMessageFilter::Text,
+			tr::lng_context_smart_select_text(tr::now));
+		if (leaderOrSelf) {
+			const auto sender = leaderOrSelf->from().get();
+			smart->addAction(
+				tr::lng_context_smart_select_sender(tr::now),
+				[=] {
+					smartSelectMessages(
+						HistoryView::SmartMessageFilter::Sender, sender);
+				},
+				&st::menuIconSelect);
+		}
+		_menu->addAction(
+			tr::lng_context_smart_select(tr::now),
+			std::move(smart),
+			&st::menuIconSelect);
+	}
+
 	if (_menu->empty()) {
 		_menu = nullptr;
 		return;
