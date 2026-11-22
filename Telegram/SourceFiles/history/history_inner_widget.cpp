@@ -5724,6 +5724,7 @@ void HistoryInner::smartSelectMessages(
 	append(_history.get());
 	_accessibilitySelectionAnchor = nullptr;
 	_widget->updateTopBarSelection();
+	update();
 	_widget->update();
 }
 
