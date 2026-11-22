@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_common_adapters.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "history/history_smart_selection.h"
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
 #include "history/history_item_text.h"
@@ -2155,6 +2156,33 @@ void ListWidget::setChooseReportReason(Data::ReportInput reportInput) {
 
 void ListWidget::clearChooseReportReason() {
 	_chooseForReportReason = std::nullopt;
+}
+
+void ListWidget::selectMatchingMessages(
+		SmartMessageFilter filter,
+		const PeerData *sender) {
+	if (hasSelectRestriction()) {
+		return;
+	}
+
+	// Smart selection replaces the old selection, and deliberately searches
+	// only the items loaded into this chat view. The existing selection limit
+	// and per-message restrictions apply just as for manual selection.
+	clearTextSelection();
+	_selected.clear();
+	for (const auto &view : _items) {
+		if (_selected.size() >= MaxSelectedItems) {
+			break;
+		}
+		const auto item = view->data();
+		if (!view->isHidden()
+			&& SmartMessageMatches(item, filter, sender)) {
+			changeSelection(_selected, item, SelectAction::Select);
+		}
+	}
+	_accessibilitySelectionAnchor = nullptr;
+	pushSelectedItems();
+	update();
 }
 
 void ListWidget::selectItem(not_null<HistoryItem*> item) {
