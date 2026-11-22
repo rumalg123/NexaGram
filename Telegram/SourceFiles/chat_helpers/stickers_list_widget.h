@@ -104,6 +104,7 @@ public:
 		StickersListDescriptor &&descriptor);
 
 	rpl::producer<FileChosen> chosen() const;
+	void setRightClickSelects(bool value);
 	[[nodiscard]] rpl::producer<> photoRequests() const;
 	[[nodiscard]] rpl::producer<> audioRequests() const;
 	[[nodiscard]] rpl::producer<> linkRequests() const;
@@ -287,6 +288,7 @@ private:
 	void displaySet(uint64 setId);
 	void removeMegagroupSet(bool locally);
 	void removeSet(uint64 setId);
+	void clearRecentStickers();
 	[[nodiscard]] base::unique_qptr<Ui::PopupMenu> fillSetContextMenu(
 		const Set &set);
 	void refreshMySets();
@@ -492,6 +494,8 @@ private:
 
 	bool _paintAsPremium = false;
 	bool _showingSetById = false;
+	bool _rightClickSelects = false;
+	bool _rightClick = false;
 	crl::time _lastScrolledAt = 0;
 	crl::time _lastFullUpdatedAt = 0;
 

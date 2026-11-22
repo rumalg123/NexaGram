@@ -319,6 +319,10 @@ rpl::producer<FileChosen> StickersListWidget::chosen() const {
 	return _chosen.events();
 }
 
+void StickersListWidget::setRightClickSelects(bool value) {
+	_rightClickSelects = value;
+}
+
 rpl::producer<> StickersListWidget::photoRequests() const {
 	return _photoRequests.events();
 }
@@ -2475,6 +2479,12 @@ bool StickersListWidget::hasRemoveButton(int index) const {
 	if (!(flags & SetFlag::Special)) {
 		return true;
 	}
+	if (set.id == Data::Stickers::RecentSetId) {
+		return !_isMasks
+			&& !_isEffects
+			&& setHasTitle(set)
+			&& !set.stickers.empty();
+	}
 	if (set.id == Data::Stickers::MegagroupSetId) {
 		Assert(_megagroupSet != nullptr);
 		if (index + 1 != shownSets().size()) {
@@ -2499,7 +2509,8 @@ QRect StickersListWidget::removeButtonRect(const SectionInfo &info) const {
 }
 
 void StickersListWidget::mousePressEvent(QMouseEvent *e) {
-	if (e->button() != Qt::LeftButton) {
+	_rightClick = _rightClickSelects && e->button() == Qt::RightButton;
+	if (e->button() != Qt::LeftButton && !_rightClick) {
 		return;
 	}
 	_lastMousePosition = e->globalPos();
@@ -2957,7 +2968,21 @@ void StickersListWidget::mouseReleaseEvent(QMouseEvent *e) {
 			Assert(sticker->index >= 0 && sticker->index < set.stickers.size());
 			if (stickerHasDeleteButton(set, sticker->index) && sticker->overDelete) {
 				if (set.id == Data::Stickers::RecentSetId) {
-					removeRecentSticker(sticker->section, sticker->index);
+					const auto isCustom = (sticker->index >= 0)
+						&& (sticker->index < int(_custom.size()))
+						&& _custom[sticker->index];
+					if (isCustom) {
+						removeRecentSticker(
+							sticker->section,
+							sticker->index);
+					} else {
+						Api::ToggleRecentSticker(
+							set.stickers[sticker->index].document,
+							Data::FileOriginStickerSet(
+								Data::Stickers::RecentSetId,
+								0),
+							false);
+					}
 				} else if (set.id == Data::Stickers::FavedSetId) {
 					removeFavedSticker(sticker->section, sticker->index);
 				} else {
@@ -2976,6 +3001,7 @@ void StickersListWidget::mouseReleaseEvent(QMouseEvent *e) {
 						sticker->section,
 						sticker->index,
 						document),
+					.rightClick = _rightClick,
 				});
 			}
 		} else if (auto set = std::get_if<OverSet>(&pressed)) {
@@ -2986,6 +3012,8 @@ void StickersListWidget::mouseReleaseEvent(QMouseEvent *e) {
 			if (sets[button->section].externalLayout) {
 				_localSetsManager->install(sets[button->section].id);
 				update();
+			} else if (sets[button->section].id == Data::Stickers::RecentSetId) {
+				clearRecentStickers();
 			} else {
 				removeSet(sets[button->section].id);
 			}
@@ -3807,8 +3835,7 @@ bool StickersListWidget::setHasTitle(const Set &set) const {
 
 bool StickersListWidget::stickerHasDeleteButton(const Set &set, int index) const {
 	if (set.id == Data::Stickers::RecentSetId) {
-		Assert(index >= 0 && index < _custom.size());
-		return _custom[index];
+		return !_isMasks && !_isEffects;
 	}
 	return (set.id == Data::Stickers::FavedSetId);
 }
@@ -4078,6 +4105,26 @@ void StickersListWidget::removeSet(uint64 setId) {
 	} else if (auto box = MakeConfirmRemoveSetBox(&session(), st, setId)) {
 		showBoxPreventHide(std::move(box));
 	}
+}
+
+void StickersListWidget::clearRecentStickers() {
+	showBoxPreventHide(Ui::MakeConfirmBox({
+		.text = tr::lng_clear_recent_stickers_text(),
+		.confirmed = crl::guard(this, [this](Fn<void()> &&close) {
+			close();
+			// saveStickerSets() clears orderRef in-place, so pass a copy.
+			const auto order = session().data().stickers().setsOrder();
+			session().api().saveStickerSets(
+				order,
+				{ Data::Stickers::CloudRecentSetId },
+				Data::StickersType::Stickers);
+			refreshRecent();
+		}),
+		.cancelled = [](Fn<void()> &&close) { close(); },
+		.confirmText = tr::lng_clear_recent_stickers_confirm(),
+		.labelStyle = &st().boxLabel,
+		.title = tr::lng_clear_recent_stickers_title(),
+	}));
 }
 
 const Data::StickersSetsOrder &StickersListWidget::defaultSetsOrder() const {
