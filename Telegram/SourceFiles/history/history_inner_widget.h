@@ -515,7 +515,8 @@ private:
 	void applyDragSelection(not_null<SelectedItems*> toItems) const;
 	void smartSelectMessages(
 		HistoryView::SmartMessageFilter filter,
-		const PeerData *sender = nullptr);
+		const PeerData *sender = nullptr,
+		const QString &filenameQuery = QString());
 	void addSelectionRange(
 		not_null<SelectedItems*> toItems,
 		not_null<History*> history,
