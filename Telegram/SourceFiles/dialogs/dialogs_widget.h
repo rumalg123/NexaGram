@@ -216,6 +216,7 @@ private:
 	void setupConnectingWidget();
 	void setupMainMenuToggle();
 	void setChatStatusFilter(ChatStatusFilter filter);
+	void updateChatStatusToolbarTheme();
 	void updateChatStatusToolbar();
 	void setupMoreChatsBar();
 	void switchToChatsFilter(FilterId id);
