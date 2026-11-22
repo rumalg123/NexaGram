@@ -268,7 +268,7 @@ Widget::Widget(
 	_scroll->setOverscrollPullDistances(st::dialogsStoriesFull.height, 0);
 	_innerList = _scroll->setOwnedWidget(
 		object_ptr<Ui::VerticalLayout>(this));
-	_statusToolbar = _innerList->add(object_ptr<Ui::RpWidget>(_innerList));
+	_statusToolbar = Ui::CreateChild<Ui::RpWidget>(this);
 	_statusToolbar->setFixedHeight(58);
 	_inner = _innerList->add(object_ptr<InnerWidget>(
 		_innerList,
@@ -1609,7 +1609,11 @@ void Widget::updateChatStatusToolbar() {
 	}
 	const auto visible = !_openedFolder && !_openedForum
 		&& !_openedCommunity && !_childList;
+	const auto visibilityChanged = (_statusToolbar->isHidden() == visible);
 	_statusToolbar->setVisible(visible);
+	if (visibilityChanged) {
+		updateControlsGeometry();
+	}
 	if (!visible) {
 		return;
 	}
@@ -4814,11 +4818,18 @@ void Widget::updateControlsGeometry() {
 		if (tabsSkip) {
 			_suggestions->setGeometry(0, scrollTop, scrollWidth, tabsSkip);
 		}
-		const auto scrollHeight = height() - scrollTop - tabsSkip - bottomSkip;
+		const auto toolbarHeight = (_statusToolbar
+			&& !_statusToolbar->isHidden()) ? _statusToolbar->height() : 0;
+		if (_statusToolbar) {
+			_statusToolbar->setGeometry(
+				0, scrollTop + tabsSkip, scrollWidth, toolbarHeight);
+		}
+		const auto scrollHeight = std::max(
+			0, height() - scrollTop - tabsSkip - toolbarHeight - bottomSkip);
 		const auto wasScrollHeight = _scroll->height();
 		_scroll->setGeometry(
 			0,
-			scrollTop + tabsSkip,
+			scrollTop + tabsSkip + toolbarHeight,
 			scrollWidth,
 			scrollHeight);
 		if (_chatsFilterSlideCanvas) {
