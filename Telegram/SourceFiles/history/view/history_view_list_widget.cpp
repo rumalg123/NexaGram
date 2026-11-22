@@ -2188,6 +2188,9 @@ void ListWidget::selectMatchingMessages(
 			changeSelection(_selected, item, SelectAction::Select);
 		}
 	}
+	if (_selected.size() >= MaxSelectedItems) {
+		Ui::Toast::Show(u"Smart Select: maximum 100 messages selected."_q);
+	}
 	_accessibilitySelectionAnchor = nullptr;
 	pushSelectedItems();
 	update();
