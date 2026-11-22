@@ -92,6 +92,26 @@ jobs:
           submodules: recursive
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
 
+      - name: Use CMake 3.31.12 for Windows builds.
+        shell: pwsh
+        run: |
+          # CMake 4.5 promotes diagnostics in older bundled projects to errors.
+          # Match the compatibility range declared in the root CMakeLists.txt.
+          $version = '3.31.12'
+          $platform = if ('${{ matrix.arch }}' -eq 'arm64') { 'arm64' } else { 'x86_64' }
+          $folder = "cmake-$version-windows-$platform"
+          $archive = Join-Path $env:RUNNER_TEMP "$folder.zip"
+          $destination = Join-Path $env:RUNNER_TEMP 'cmake-pinned'
+          $url = "https://github.com/Kitware/CMake/releases/download/v$version/$folder.zip"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination -Force
+          $cmakeRoot = Join-Path $destination $folder
+          $cmake = Join-Path $cmakeRoot 'bin\cmake.exe'
+          & $cmake --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $cmakeRoot 'bin')
+          Add-Content -Path $env:GITHUB_ENV -Value "PINNED_CMAKE_ROOT=$cmakeRoot"
+
       - name: First set up.
         shell: bash
         run: |
@@ -99,7 +119,7 @@ jobs:
           SDK="$(grep "SDK version" $DOCPATH | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
           echo "SDK=$SDK" >> $GITHUB_ENV
 
-          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
+          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PINNED_CMAKE_ROOT"/share/cmake*/Modules/Platform/Windows-MSVC.cmake
 
           echo "$(sha256sum $TBUILD/$REPO_NAME/$PREPARE_PATH | awk '{ print $1 }')" >> CACHE_KEY.txt
           echo "$SDK" >> CACHE_KEY.txt
@@ -248,7 +268,6 @@ jobs:
           cd %TBUILD%\%REPO_NAME%\Telegram
 
           call configure.bat ^
-          -Wno-error=non-target-directive ^
           %TDESKTOP_BUILD_GENERATOR% ^
           %TDESKTOP_BUILD_ARCH% ^
           ${{ matrix.qt }} ^
@@ -259,6 +278,7 @@ jobs:
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF ^
           %TDESKTOP_BUILD_DEFINE%
+          if errorlevel 1 exit /b 1
 
           cmake --build ..\out --config Debug --parallel
 
