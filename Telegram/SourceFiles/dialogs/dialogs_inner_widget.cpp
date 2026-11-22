@@ -420,7 +420,10 @@ InnerWidget::InnerWidget(
 	) | rpl::filter([=](Data::Folder *folder) {
 		return !_savedSublists
 			&& !_openedForum
-			&& (folder == _openedFolder);
+			&& ((folder == _openedFolder)
+			|| (_state == WidgetState::Filtered
+				&& ParseChatStatusFilter(_searchState.query)
+					!= ChatStatusFilter::None));
 	}) | rpl::on_next([=] {
 		if (_state == WidgetState::Filtered && !_filter.isEmpty()) {
 			refreshFilterResults();
@@ -568,6 +571,21 @@ InnerWidget::InnerWidget(
 		if (update.flags & UpdateFlag::IsContact) {
 			// contactsNoChatsList could've changed.
 			Ui::PostponeCall(this, [=] { refresh(); });
+		}
+	}, lifetime());
+
+	session().changes().peerUpdates(
+		UpdateFlag::Name
+		| UpdateFlag::FullInfo
+		| UpdateFlag::UnavailableReason
+		| UpdateFlag::Rights
+		| UpdateFlag::ChannelAmIn
+	) | rpl::on_next([=](const Data::PeerUpdate &) {
+		if (_state == WidgetState::Filtered
+			&& ParseChatStatusFilter(_searchState.query)
+				!= ChatStatusFilter::None) {
+			refreshFilterResults();
+			refresh();
 		}
 	}, lifetime());
 
@@ -4601,6 +4619,34 @@ void InnerWidget::onHashtagFilterUpdate(QStringView newFilter) {
 }
 
 void InnerWidget::refreshFilterResults() {
+	const auto status = _searchState.filterChatsList()
+		? ParseChatStatusFilter(_searchState.query)
+		: ChatStatusFilter::None;
+	if (status != ChatStatusFilter::None) {
+		_filterResults.clear();
+		const auto append = [&](not_null<IndexedList*> list) {
+			for (const auto &row : *list) {
+				const auto key = row->key();
+				if (!PeerMatchesChatStatus(key.peer(), status)
+					|| ranges::contains(
+						_filterResults, key, &FilterResult::key)) {
+					continue;
+				}
+				const auto top = filteredHeight();
+				_filterResults.emplace_back(row.get());
+				auto &result = _filterResults.back();
+				result.top = top;
+				result.row->recountHeight(_narrowRatio, _filterId);
+			}
+		};
+		const auto owner = &session().data();
+		append(owner->chatsList()->indexed());
+		if (const auto archive = owner->folderLoaded(Data::Folder::kId)) {
+			append(archive->chatsList()->indexed());
+		}
+		append(owner->contactsNoChatsList());
+		return;
+	}
 	const auto mentionsSearch = (_filter == u"@"_q);
 	const auto words = mentionsSearch
 		? QStringList(_filter)

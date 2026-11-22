@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_main_menu.h"
 
 #include "apiwrap.h"
+#include "dialogs/dialogs_key.h"
+#include "mainwidget.h"
 #include "base/event_filter.h"
 #include "base/qt_signal_producer.h"
 #include "boxes/about_box.h"
@@ -724,6 +726,29 @@ void MainMenu::setupMenu() {
 			{ &st::menuIconPhone }
 		)->setClickedCallback([=] {
 			::Calls::ShowCallsBox(controller);
+		});
+		const auto openChatStatus = [=](const QString &query) {
+			controller->window().hideSettingsAndLayer();
+			controller->removeLayerBlackout();
+			controller->content()->searchMessages(query, Dialogs::Key());
+		};
+		addAction(
+			rpl::single(u"Deleted accounts"_q),
+			{ &st::menuIconProfile }
+		)->setClickedCallback([=] {
+			openChatStatus(u"is:deleted"_q);
+		});
+		addAction(
+			rpl::single(u"Unavailable chats"_q),
+			{ &st::menuIconGroups }
+		)->setClickedCallback([=] {
+			openChatStatus(u"is:unavailable"_q);
+		});
+		addAction(
+			rpl::single(u"Restricted chats"_q),
+			{ &st::menuIconLock }
+		)->setClickedCallback([=] {
+			openChatStatus(u"is:restricted"_q);
 		});
 		addAction(
 			tr::lng_saved_messages(),

@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "dialogs/dialogs_key.h"
 
 #include "data/data_channel.h"
+#include "data/data_chat.h"
+#include "data/data_user.h"
 #include "data/data_folder.h"
 #include "data/data_forum_topic.h"
 #include "data/data_saved_sublist.h"
@@ -84,6 +86,45 @@ PeerData *Key::peer() const {
 		return history->peer;
 	}
 	return nullptr;
+}
+
+ChatStatusFilter ParseChatStatusFilter(const QString &query) {
+	const auto normalized = query.trimmed().toLower();
+	if (normalized == u"is:deleted"_q) {
+		return ChatStatusFilter::Deleted;
+	} else if (normalized == u"is:unavailable"_q) {
+		return ChatStatusFilter::Unavailable;
+	} else if (normalized == u"is:restricted"_q) {
+		return ChatStatusFilter::Restricted;
+	}
+	return ChatStatusFilter::None;
+}
+
+bool PeerMatchesChatStatus(PeerData *peer, ChatStatusFilter filter) {
+	if (!peer) {
+		return false;
+	}
+	switch (filter) {
+	case ChatStatusFilter::Deleted: {
+		const auto user = peer->asUser();
+		return user && user->isInaccessible();
+	}
+	case ChatStatusFilter::Unavailable: {
+		const auto chat = peer->asChat();
+		const auto channel = peer->asChannel();
+		return (chat && (chat->isForbidden() || chat->isDeactivated()))
+			|| (channel && channel->isForbidden());
+	}
+	case ChatStatusFilter::Restricted: {
+		const auto user = peer->asUser();
+		const auto channel = peer->asChannel();
+		return (user && !user->restriction_reason.isEmpty())
+			|| (channel && (!channel->restriction_reason.isEmpty()
+				|| channel->hasRestrictions()));
+	}
+	case ChatStatusFilter::None: return false;
+	}
+	return false;
 }
 
 [[nodiscard]] bool SearchState::empty() const {

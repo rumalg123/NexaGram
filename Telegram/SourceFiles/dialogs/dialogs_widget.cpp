@@ -3044,6 +3044,17 @@ bool Widget::search(bool inCache, SearchRequestDelay delay) {
 		.start = true,
 		.peer = (inPeer != nullptr),
 	};
+	if (!inPeer
+		&& _searchState.tab == ChatSearchTab::MyMessages
+		&& ParseChatStatusFilter(query) != ChatStatusFilter::None) {
+		// These queries filter locally cached dialogs, not server messages.
+		cancelSearchRequest();
+		_peerSearch.clear();
+		_api.request(base::take(_topicSearchRequest)).cancel();
+		peerSearchReceived({});
+		searchApplyEmpty(fromStartType, currentSearchProcess());
+		return true;
+	}
 	if (trimmed.isEmpty() && !fromPeer && inTags.empty()) {
 		cancelSearchRequest();
 

@@ -140,6 +140,19 @@ enum class ChatTypeFilter : uchar {
 	Channels,
 };
 
+// Local-only queries displayed in the dialogs search results.
+enum class ChatStatusFilter : uchar {
+	None,
+	Deleted,
+	Unavailable,
+	Restricted,
+};
+
+[[nodiscard]] ChatStatusFilter ParseChatStatusFilter(const QString &query);
+[[nodiscard]] bool PeerMatchesChatStatus(
+	PeerData *peer,
+	ChatStatusFilter filter);
+
 struct SearchState {
 	Key inChat;
 	PeerData *fromPeer = nullptr;
