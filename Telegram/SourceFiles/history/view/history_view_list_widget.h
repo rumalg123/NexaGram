@@ -87,6 +87,7 @@ struct SectionShow;
 } // namespace Window
 
 namespace HistoryView {
+enum class SmartMessageFilter : uchar;
 
 class AboutView;
 struct TextState;
@@ -405,6 +406,9 @@ public:
 	void clearTextSelection();
 	void cancelSelection();
 	[[nodiscard]] bool wasSelectedText() const;
+	void selectMatchingMessages(
+		SmartMessageFilter filter,
+		const PeerData *sender = nullptr);
 	void selectItem(not_null<HistoryItem*> item);
 	void selectItemAsGroup(not_null<HistoryItem*> item);
 	void selectItemsUpTo(not_null<HistoryItem*> item);
