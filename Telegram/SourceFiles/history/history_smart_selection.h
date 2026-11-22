@@ -22,12 +22,14 @@ enum class SmartMessageFilter : uchar {
 	Audio,
 	Text,
 	Sender,
+	Filename,
 };
 
 [[nodiscard]] inline bool SmartMessageMatches(
 		not_null<HistoryItem*> item,
 		SmartMessageFilter filter,
-		const PeerData *sender = nullptr) {
+		const PeerData *sender = nullptr,
+		const QString &filenameQuery = QString()) {
 	if (!item->isRegular() || item->isService()) {
 		return false;
 	}
@@ -36,6 +38,22 @@ enum class SmartMessageFilter : uchar {
 	}
 	const auto media = item->media();
 	const auto document = media ? media->document() : nullptr;
+	if (filter == SmartMessageFilter::Filename) {
+		// All words are required, in any order. This matches release names
+		// like "[Judas] Overlord S04E02 [720p].mkv" for "overlord 720p mkv".
+		const auto words = filenameQuery.simplified().split(
+			' ', Qt::SkipEmptyParts);
+		if (!document || words.isEmpty()) {
+			return false;
+		}
+		const auto name = document->filename();
+		for (const auto &word : words) {
+			if (!name.contains(word, Qt::CaseInsensitive)) {
+				return false;
+			}
+		}
+		return true;
+	}
 	switch (filter) {
 	case SmartMessageFilter::Photos:
 		return media && media->photo();
@@ -60,6 +78,7 @@ enum class SmartMessageFilter : uchar {
 		return !item->originalText().text.isEmpty()
 			&& (!media || media->webpage());
 	case SmartMessageFilter::Sender:
+	case SmartMessageFilter::Filename:
 		return false;
 	}
 	return false;
