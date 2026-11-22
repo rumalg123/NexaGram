@@ -56,14 +56,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64_x86, x64, arm64]
-        qt: ["", qt6]
-        generator: ["", "Ninja Multi-Config"]
-        exclude:
-          - arch: arm64
-            qt: ""
-          - arch: x64_x86
-            qt: qt6
+        # Windows x64 first: one supported Ninja/Qt6 target while stabilizing CI.
+        arch: [x64]
+        qt: [qt6]
+        generator: ["Ninja Multi-Config"]
 
     env:
       UPLOAD_ARTIFACT: "true"
@@ -260,7 +256,7 @@ jobs:
 
       - name: Free up some disk space.
         shell: bash
-        run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
+        run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -name '*.cpp' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
 
       - name: Telegram Desktop build.
         if: env.ONLY_CACHE == 'false'
