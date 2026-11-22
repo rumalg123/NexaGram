@@ -3534,11 +3534,20 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 					_widget->forwardSelected();
 				}, &st::menuIconForward);
+				_menu->addAction(tr::lng_context_forward_selected_keep(tr::now), [=] {
+					_widget->forwardSelected(true);
+				}, &st::menuIconForward);
 				_menu->addAction(tr::lng_context_forward_selected_no_quote(tr::now), [=] {
 					_widget->forwardNoQuoteSelected();
 				}, &st::menuIconForward);
+				_menu->addAction(tr::lng_context_forward_selected_no_quote_keep(tr::now), [=] {
+					_widget->forwardNoQuoteSelected(true);
+				}, &st::menuIconForward);
 				_menu->addAction(tr::lng_forward_to_saved_message(tr::now), [=] {
 					_widget->forwardSelectedToSavedMessages();
+				}, &st::menuIconFave);
+				_menu->addAction(tr::lng_forward_to_saved_message_keep(tr::now), [=] {
+					_widget->forwardSelectedToSavedMessages(true);
 				}, &st::menuIconFave);
 			}
 			if (selectedState.count > 0 && selectedState.canDeleteCount == selectedState.count) {
@@ -3979,11 +3988,20 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 					_widget->forwardSelected();
 				}, &st::menuIconForward);
+				_menu->addAction(tr::lng_context_forward_selected_keep(tr::now), [=] {
+					_widget->forwardSelected(true);
+				}, &st::menuIconForward);
 				_menu->addAction(tr::lng_context_forward_selected_no_quote(tr::now), [=] {
 					_widget->forwardNoQuoteSelected();
 				}, &st::menuIconForward);
+				_menu->addAction(tr::lng_context_forward_selected_no_quote_keep(tr::now), [=] {
+					_widget->forwardNoQuoteSelected(true);
+				}, &st::menuIconForward);
 				_menu->addAction(tr::lng_forward_to_saved_message(tr::now), [=] {
 					_widget->forwardSelectedToSavedMessages();
+				}, &st::menuIconFave);
+				_menu->addAction(tr::lng_forward_to_saved_message_keep(tr::now), [=] {
+					_widget->forwardSelectedToSavedMessages(true);
 				}, &st::menuIconFave);
 			}
 			if (selectedState.count > 0 && selectedState.count == selectedState.canDeleteCount) {

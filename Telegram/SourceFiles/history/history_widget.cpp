@@ -11427,8 +11427,12 @@ void HistoryWidget::oldForwardSelected() {
 		});
 }
 
-void HistoryWidget::forwardSelected() {
+void HistoryWidget::forwardSelected(bool keepSelection) {
 	if (!_list) {
+		return;
+	}
+	if (keepSelection) {
+		Window::ShowNewForwardMessagesBox(controller(), getSelectedItems(), false);
 		return;
 	}
 	const auto weak = base::make_weak(this);
@@ -11439,8 +11443,12 @@ void HistoryWidget::forwardSelected() {
 	});
 }
 
-void HistoryWidget::forwardNoQuoteSelected() {
+void HistoryWidget::forwardNoQuoteSelected(bool keepSelection) {
 	if (!_list) {
+		return;
+	}
+	if (keepSelection) {
+		Window::ShowNewForwardMessagesBox(controller(), getSelectedItems(), true);
 		return;
 	}
 	const auto weak = base::make_weak(this);
@@ -11451,14 +11459,20 @@ void HistoryWidget::forwardNoQuoteSelected() {
 	});
 }
 
-void HistoryWidget::forwardSelectedToSavedMessages() {
+void HistoryWidget::forwardSelectedToSavedMessages(bool keepSelection) {
 	if (!_list) {
 		return;
 	}
 	const auto weak = base::make_weak(this);
 
 	const auto items = getSelectedItems();
+	if (items.empty()) {
+		return;
+	}
 	const auto item = controller()->session().data().message(items[0]);
+	if (!item) {
+		return;
+	}
 	const auto api = &item->history()->peer->session().api();
 	const auto session = &item->history()->peer->session();
 	const auto self = api->session().user()->asUser();
@@ -11474,8 +11488,10 @@ void HistoryWidget::forwardSelectedToSavedMessages() {
 	api->forwardMessages(std::move(resolved), action, [=] {
 		Ui::Toast::Show(tr::lng_share_done(tr::now));
 
-		if (const auto strong = weak.get()) {
-			strong->clearSelected();
+		if (!keepSelection) {
+			if (const auto strong = weak.get()) {
+				strong->clearSelected();
+			}
 		}
 	});
 }

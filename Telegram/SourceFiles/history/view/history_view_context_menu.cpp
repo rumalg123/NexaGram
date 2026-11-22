@@ -603,6 +603,18 @@ bool AddForwardSelectedAction(
 					}
 				});
 	}, &st::menuIconForward);
+	menu->addAction(tr::lng_context_forward_selected_keep(tr::now), [=] {
+		Window::ShowNewForwardMessagesBox(
+			request.navigation,
+			ExtractIdsList(request.selectedItems),
+			false);
+	}, &st::menuIconForward);
+	menu->addAction(tr::lng_context_forward_selected_no_quote_keep(tr::now), [=] {
+		Window::ShowNewForwardMessagesBox(
+			request.navigation,
+			ExtractIdsList(request.selectedItems),
+			true);
+	}, &st::menuIconForward);
 	menu->addAction(tr::lng_forward_to_saved_message(tr::now), [=] {
 		const auto weak = base::make_weak(list);
 		const auto items = ExtractIdsList(request.selectedItems);
@@ -625,6 +637,27 @@ bool AddForwardSelectedAction(
 			if (const auto strong = weak.get()) {
 				strong->cancelSelection();
 			}
+		});
+	}, &st::menuIconFave);
+	menu->addAction(tr::lng_forward_to_saved_message_keep(tr::now), [=] {
+		const auto items = ExtractIdsList(request.selectedItems);
+		if (items.empty()) {
+			return;
+		}
+		const auto item = request.navigation->session().data().message(items[0]);
+		if (!item) {
+			return;
+		}
+		const auto api = &item->history()->peer->session().api();
+		const auto self = api->session().user()->asUser();
+		const auto history = item->history()->peer->owner().history(self);
+		auto action = Api::SendAction(history);
+		action.clearDraft = false;
+		action.generateLocal = false;
+		auto resolved = history->resolveForwardDraft(
+			Data::ForwardDraft{ .ids = items });
+		api->forwardMessages(std::move(resolved), action, [] {
+			Ui::Toast::Show(tr::lng_share_done(tr::now));
 		});
 	}, &st::menuIconFave);
 	return true;
