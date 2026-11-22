@@ -408,7 +408,8 @@ public:
 	[[nodiscard]] bool wasSelectedText() const;
 	void selectMatchingMessages(
 		SmartMessageFilter filter,
-		const PeerData *sender = nullptr);
+		const PeerData *sender = nullptr,
+		const QString &filenameQuery = QString());
 	void selectItem(not_null<HistoryItem*> item);
 	void selectItemAsGroup(not_null<HistoryItem*> item);
 	void selectItemsUpTo(not_null<HistoryItem*> item);
