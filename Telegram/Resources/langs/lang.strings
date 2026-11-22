@@ -5432,6 +5432,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_context_copy_text_from_image" = "—Text from image—";
 "lng_context_forward_selected" = "Forward Selected";
 "lng_context_forward_selected_keep" = "Forward Selected (Keep Selection)";
+"lng_context_smart_select" = "Smart Select (Loaded Messages)";
+"lng_context_smart_select_photos" = "Photos";
+"lng_context_smart_select_videos" = "Videos and GIFs";
+"lng_context_smart_select_files" = "Files";
+"lng_context_smart_select_audio" = "Audio and Voice";
+"lng_context_smart_select_text" = "Text Messages";
+"lng_context_smart_select_sender" = "From This Sender";
 "lng_context_send_now_selected" = "Send selected now";
 "lng_context_reschedule_selected" = "Reschedule Selected";
 "lng_context_delete_selected" = "Delete Selected";
