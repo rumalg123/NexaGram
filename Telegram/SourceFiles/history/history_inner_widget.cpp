@@ -5754,6 +5754,9 @@ void HistoryInner::smartSelectMessages(
 	};
 	append(_migrated);
 	append(_history.get());
+	if (_selected.size() >= MaxSelectedItems) {
+		Ui::Toast::Show(u"Smart Select: maximum 100 messages selected."_q);
+	}
 	_accessibilitySelectionAnchor = nullptr;
 	_widget->updateTopBarSelection();
 	update();
