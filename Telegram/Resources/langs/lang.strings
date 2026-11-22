@@ -5439,6 +5439,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_context_smart_select_audio" = "Audio and Voice";
 "lng_context_smart_select_text" = "Text Messages";
 "lng_context_smart_select_sender" = "From This Sender";
+"lng_context_smart_select_filename" = "Filename Keywords";
+"lng_context_smart_select_filename_regex" = "Filename Regex";
+"lng_context_smart_select_filename_placeholder" = "e.g. Overlord 720p mkv";
+"lng_context_smart_select_regex_placeholder" = "e.g. (?=.*Overlord)(?=.*720p).*\\.mkv$";
 "lng_context_send_now_selected" = "Send selected now";
 "lng_context_reschedule_selected" = "Reschedule Selected";
 "lng_context_delete_selected" = "Delete Selected";
