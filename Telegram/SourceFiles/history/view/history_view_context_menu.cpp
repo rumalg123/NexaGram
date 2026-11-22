@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_context_menu.h"
 #include "history/history_smart_selection.h"
+#include "history/history_smart_selection_box.h"
 
 #include "api/api_attached_stickers.h"
 #include "api/api_common.h"
@@ -1687,6 +1688,28 @@ void AddSmartSelectionAction(
 		tr::lng_context_smart_select_audio(tr::now));
 	add(SmartMessageFilter::Text,
 		tr::lng_context_smart_select_text(tr::now));
+	const auto addFilename = [&](bool regex) {
+		smart->addAction(
+			regex
+				? tr::lng_context_smart_select_filename_regex(tr::now)
+				: tr::lng_context_smart_select_filename(tr::now),
+			[=] {
+				list->controller()->show(Box(
+					SmartSelectFilenameBox,
+					regex,
+					crl::guard(list, [=](QString query) {
+						list->selectMatchingMessages(
+							regex
+								? SmartMessageFilter::FilenameRegex
+								: SmartMessageFilter::Filename,
+							nullptr,
+							query);
+					})));
+			},
+			&st::menuIconSelect);
+	};
+	addFilename(false);
+	addFilename(true);
 	if (const auto item = request.item) {
 		const auto sender = item->from().get();
 		smart->addAction(
