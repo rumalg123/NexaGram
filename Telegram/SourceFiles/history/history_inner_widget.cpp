@@ -89,6 +89,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/emoji_interactions.h"
 #include "history/history_widget.h"
 #include "history/history_smart_selection.h"
+#include "history/history_smart_selection_box.h"
 #include "history/view/history_view_translate_tracker.h"
 #include "history/view/history_view_read_metrics_tracker.h"
 #include "base/platform/base_platform_info.h"
@@ -4280,6 +4281,28 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			tr::lng_context_smart_select_audio(tr::now));
 		add(HistoryView::SmartMessageFilter::Text,
 			tr::lng_context_smart_select_text(tr::now));
+		const auto addFilename = [&](bool regex) {
+			smart->addAction(
+				regex
+					? tr::lng_context_smart_select_filename_regex(tr::now)
+					: tr::lng_context_smart_select_filename(tr::now),
+				[=] {
+					_controller->show(Box(
+						HistoryView::SmartSelectFilenameBox,
+						regex,
+						crl::guard(this, [=](QString query) {
+							smartSelectMessages(
+								regex
+									? HistoryView::SmartMessageFilter::FilenameRegex
+									: HistoryView::SmartMessageFilter::Filename,
+								nullptr,
+								query);
+						})));
+				},
+				&st::menuIconSelect);
+		};
+		addFilename(false);
+		addFilename(true);
 		if (leaderOrSelf) {
 			const auto sender = leaderOrSelf->from().get();
 			smart->addAction(
