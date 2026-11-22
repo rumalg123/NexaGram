@@ -103,6 +103,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QMimeData>
 #include <QtGui/QTextBlock>
+#include <QtGui/QPalette>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QLabel>
@@ -270,6 +271,7 @@ Widget::Widget(
 		object_ptr<Ui::VerticalLayout>(this));
 	_statusToolbar = Ui::CreateChild<Ui::RpWidget>(this);
 	_statusToolbar->setFixedHeight(58);
+	_statusToolbar->setAutoFillBackground(true);
 	_inner = _innerList->add(object_ptr<InnerWidget>(
 		_innerList,
 		controller,
@@ -291,6 +293,7 @@ Widget::Widget(
 		for (auto i = 0; i != int(filters.size()); ++i) {
 			const auto button = new QToolButton(_statusToolbar);
 			button->setCheckable(true);
+			button->setObjectName(u"chatStatusFilterButton"_q);
 			button->setAutoRaise(true);
 			button->setToolButtonStyle(Qt::ToolButtonTextOnly);
 			button->setSizePolicy(
@@ -305,8 +308,14 @@ Widget::Widget(
 		layout->addLayout(buttons);
 		_statusSummary = new QLabel(_statusToolbar);
 		_statusSummary->setAlignment(Qt::AlignCenter);
+		_statusSummary->setObjectName(u"chatStatusSummary"_q);
 		_statusSummary->setAccessibleName(u"Local chat status count"_q);
 		layout->addWidget(_statusSummary);
+		updateChatStatusToolbarTheme();
+		style::PaletteChanged(
+		) | rpl::on_next([=] {
+			updateChatStatusToolbarTheme();
+		}, lifetime());
 	} else {
 		_statusToolbar->hide();
 	}
@@ -1601,6 +1610,44 @@ void Widget::setChatStatusFilter(ChatStatusFilter filter) {
 	}
 	searchMessages(std::move(state));
 	_scroll->scrollToY(0);
+}
+
+void Widget::updateChatStatusToolbarTheme() {
+	if (!_statusToolbar || !_statusSummary) {
+		return;
+	}
+
+	// The filter bar lives outside the scrolling list and must use the same
+	// live palette as the surrounding Telegram dialogs, not Qt's OS style.
+	auto palette = _statusToolbar->palette();
+	palette.setColor(QPalette::Window, st::dialogsBg->c);
+	_statusToolbar->setPalette(palette);
+
+	const auto color = [](const style::color &value) {
+		return value->c.name(QColor::HexArgb);
+	};
+	_statusToolbar->setStyleSheet(
+		u"QToolButton#chatStatusFilterButton {"
+			" border: none; border-radius: 6px; padding: 4px 3px;"
+			" background: transparent; color: %1;"
+		"}"
+		"QToolButton#chatStatusFilterButton:hover:!checked {"
+			" background: %2;"
+		"}"
+		"QToolButton#chatStatusFilterButton:checked {"
+			" background: %3; color: %4;"
+		"}"
+		"QToolButton#chatStatusFilterButton:focus {"
+			" border: 1px solid %3;"
+		"}"
+		"QLabel#chatStatusSummary {"
+			" background: transparent; color: %5;"
+		"}"_q.arg(
+			color(st::dialogsNameFg),
+			color(st::dialogsBgOver),
+			color(st::windowBgActive),
+			color(st::windowFgActive),
+			color(st::windowSubTextFg)));
 }
 
 void Widget::updateChatStatusToolbar() {
