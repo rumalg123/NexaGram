@@ -2160,14 +2160,21 @@ void ListWidget::clearChooseReportReason() {
 
 void ListWidget::selectMatchingMessages(
 		SmartMessageFilter filter,
-		const PeerData *sender) {
+		const PeerData *sender,
+		const QString &filenameQuery) {
 	if (hasSelectRestriction()) {
 		return;
 	}
+	const auto regex = QRegularExpression(
+		filenameQuery, QRegularExpression::CaseInsensitiveOption);
+	const auto compiled = (filter == SmartMessageFilter::FilenameRegex)
+		? &regex : nullptr;
+	if (compiled && !compiled->isValid()) {
+		return;
+	}
 
-	// Smart selection replaces the old selection, and deliberately searches
-	// only the items loaded into this chat view. The existing selection limit
-	// and per-message restrictions apply just as for manual selection.
+	// Smart selection replaces the old selection, and searches only loaded
+	// messages, retaining Telegram's normal 100-message selection limit.
 	clearTextSelection();
 	_selected.clear();
 	for (const auto &view : _items) {
@@ -2176,7 +2183,8 @@ void ListWidget::selectMatchingMessages(
 		}
 		const auto item = view->data();
 		if (!view->isHidden()
-			&& SmartMessageMatches(item, filter, sender)) {
+			&& SmartMessageMatches(
+				item, filter, sender, filenameQuery, compiled)) {
 			changeSelection(_selected, item, SelectAction::Select);
 		}
 	}
