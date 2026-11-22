@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_context_menu.h"
+#include "history/history_smart_selection.h"
 
 #include "api/api_attached_stickers.h"
 #include "api/api_common.h"
@@ -1660,6 +1661,46 @@ bool AddSelectMessageAction(
 	return true;
 }
 
+void AddSmartSelectionAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ContextMenuRequest &request,
+		not_null<ListWidget*> list) {
+	if (list->hasSelectRestriction()
+		|| (!request.item && request.selectedItems.empty())) {
+		return;
+	}
+	auto smart = std::make_unique<Ui::PopupMenu>(
+		list, st::popupMenuWithIcons);
+	const auto add = [&](SmartMessageFilter filter,
+			const QString &label) {
+		smart->addAction(label, [=] {
+			list->selectMatchingMessages(filter);
+		}, &st::menuIconSelect);
+	};
+	add(SmartMessageFilter::Photos,
+		tr::lng_context_smart_select_photos(tr::now));
+	add(SmartMessageFilter::Videos,
+		tr::lng_context_smart_select_videos(tr::now));
+	add(SmartMessageFilter::Files,
+		tr::lng_context_smart_select_files(tr::now));
+	add(SmartMessageFilter::Audio,
+		tr::lng_context_smart_select_audio(tr::now));
+	add(SmartMessageFilter::Text,
+		tr::lng_context_smart_select_text(tr::now));
+	if (const auto item = request.item) {
+		const auto sender = item->from().get();
+		smart->addAction(
+			tr::lng_context_smart_select_sender(tr::now),
+			[=] { list->selectMatchingMessages(
+				SmartMessageFilter::Sender, sender); },
+			&st::menuIconSelect);
+	}
+	menu->addAction(
+		tr::lng_context_smart_select(tr::now),
+		std::move(smart),
+		&st::menuIconSelect);
+}
+
 void AddSelectionAction(
 		not_null<Ui::PopupMenu*> menu,
 		const ContextMenuRequest &request,
@@ -1734,6 +1775,7 @@ void AddMessageActions(
 			request.item);
 	}
 	AddSelectionAction(menu, request, list);
+	AddSmartSelectionAction(menu, request, list);
 	if (request.item && request.selectedItems.empty()) {
 		AddEphemeralAboutAction(menu, request.item);
 	}
