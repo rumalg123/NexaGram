@@ -5696,8 +5696,16 @@ auto HistoryInner::getSelectionState() const
 
 void HistoryInner::smartSelectMessages(
 		HistoryView::SmartMessageFilter filter,
-		const PeerData *sender) {
+		const PeerData *sender,
+		const QString &filenameQuery) {
 	if (hasSelectRestriction()) {
+		return;
+	}
+	const auto regex = QRegularExpression(
+		filenameQuery, QRegularExpression::CaseInsensitiveOption);
+	const auto compiled = (filter == HistoryView::SmartMessageFilter::FilenameRegex)
+		? &regex : nullptr;
+	if (compiled && !compiled->isValid()) {
 		return;
 	}
 	clearTextSelection();
@@ -5714,7 +5722,8 @@ void HistoryInner::smartSelectMessages(
 				}
 				const auto item = view->data();
 				if (!view->isHidden()
-					&& HistoryView::SmartMessageMatches(item, filter, sender)) {
+					&& HistoryView::SmartMessageMatches(
+						item, filter, sender, filenameQuery, compiled)) {
 					changeSelection(&_selected, item, SelectAction::Select);
 				}
 			}
