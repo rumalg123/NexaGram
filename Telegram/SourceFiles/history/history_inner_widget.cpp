@@ -88,6 +88,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/message_field.h"
 #include "chat_helpers/emoji_interactions.h"
 #include "history/history_widget.h"
+#include "history/history_smart_selection.h"
 #include "history/view/history_view_translate_tracker.h"
 #include "history/view/history_view_read_metrics_tracker.h"
 #include "base/platform/base_platform_info.h"
@@ -5656,6 +5657,39 @@ auto HistoryInner::getSelectionState() const
 			&& !_selectedTextSelection.empty())
 		|| _widgetSelection->has();
 	return result;
+}
+
+void HistoryInner::smartSelectMessages(
+		HistoryView::SmartMessageFilter filter,
+		const PeerData *sender) {
+	if (hasSelectRestriction()) {
+		return;
+	}
+	clearTextSelection();
+	_widgetSelection->clear();
+	_selected.clear();
+	const auto append = [&](History *history) {
+		if (!history) {
+			return;
+		}
+		for (const auto &block : history->blocks) {
+			for (const auto &view : block->messages) {
+				if (_selected.size() >= MaxSelectedItems) {
+					return;
+				}
+				const auto item = view->data();
+				if (!view->isHidden()
+					&& HistoryView::SmartMessageMatches(item, filter, sender)) {
+					changeSelection(&_selected, item, SelectAction::Select);
+				}
+			}
+		}
+	};
+	append(_migrated);
+	append(_history.get());
+	_accessibilitySelectionAnchor = nullptr;
+	_widget->updateTopBarSelection();
+	_widget->update();
 }
 
 void HistoryInner::clearSelected(bool onlyTextSelection) {
