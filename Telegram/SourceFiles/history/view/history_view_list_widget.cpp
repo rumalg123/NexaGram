@@ -2158,38 +2158,36 @@ void ListWidget::clearChooseReportReason() {
 	_chooseForReportReason = std::nullopt;
 }
 
-void ListWidget::selectMatchingMessages(
-		SmartMessageFilter filter,
-		const PeerData *sender,
-		const QString &filenameQuery) {
-	if (hasSelectRestriction()) {
-		return;
-	}
-	const auto regex = QRegularExpression(
-		filenameQuery, QRegularExpression::CaseInsensitiveOption);
-	const auto compiled = (filter == SmartMessageFilter::FilenameRegex)
-		? &regex : nullptr;
-	if (compiled && !compiled->isValid()) {
-		return;
-	}
+bool ListWidget::canSelectMatchingMessages() const {
+	return _selectEnabled && !hasSelectRestriction();
+}
 
-	// Smart selection replaces the old selection, and searches only loaded
-	// messages, retaining Telegram's normal 100-message selection limit.
+void ListWidget::selectMatchingMessages(SmartMessageSelection selection) {
+	if (!canSelectMatchingMessages()) {
+		return;
+	}
+	const auto scan = [&](const auto &views) {
+		for (const auto &view : views) {
+			const auto item = view->data();
+			if ((!view->isHidden() || view->isHiddenByGroup())
+				&& _delegate->listIsItemGoodForSelection(item)
+				&& !selection.add(item)) {
+				break;
+			}
+		}
+	};
+	if (_inverted) {
+		scan(_items);
+	} else {
+		scan(ranges::views::reverse(_items));
+	}
+	if (!selection.finish()) {
+		return;
+	}
 	clearTextSelection();
 	_selected.clear();
-	for (const auto &view : _items) {
-		if (_selected.size() >= MaxSelectedItems) {
-			break;
-		}
-		const auto item = view->data();
-		if (!view->isHidden()
-			&& SmartMessageMatches(
-				item, filter, sender, filenameQuery, compiled)) {
-			changeSelection(_selected, item, SelectAction::Select);
-		}
-	}
-	if (_selected.size() >= MaxSelectedItems) {
-		Ui::Toast::Show(u"Smart Select: maximum 100 messages selected."_q);
+	for (const auto &item : selection.items()) {
+		addToSelection(_selected, item);
 	}
 	_accessibilitySelectionAnchor = nullptr;
 	pushSelectedItems();

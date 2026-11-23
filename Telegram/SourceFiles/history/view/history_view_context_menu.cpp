@@ -1666,7 +1666,7 @@ void AddSmartSelectionAction(
 		not_null<Ui::PopupMenu*> menu,
 		const ContextMenuRequest &request,
 		not_null<ListWidget*> list) {
-	if (list->hasSelectRestriction()
+	if (!list->canSelectMatchingMessages()
 		|| (!request.item && request.selectedItems.empty())) {
 		return;
 	}
@@ -1675,7 +1675,7 @@ void AddSmartSelectionAction(
 	const auto add = [&](SmartMessageFilter filter,
 			const QString &label) {
 		smart->addAction(label, [=] {
-			list->selectMatchingMessages(filter);
+			list->selectMatchingMessages(SmartMessageSelection(filter));
 		}, &st::menuIconSelect);
 	};
 	add(SmartMessageFilter::Photos,
@@ -1694,17 +1694,15 @@ void AddSmartSelectionAction(
 				? tr::lng_context_smart_select_filename_regex(tr::now)
 				: tr::lng_context_smart_select_filename(tr::now),
 			[=] {
+				const auto apply = crl::guard(
+					list,
+					[=](SmartMessageSelection selection) {
+						list->selectMatchingMessages(std::move(selection));
+					});
 				list->controller()->show(Box(
 					SmartSelectFilenameBox,
 					regex,
-					crl::guard(list, [=](QString query) {
-						list->selectMatchingMessages(
-							regex
-								? SmartMessageFilter::FilenameRegex
-								: SmartMessageFilter::Filename,
-							nullptr,
-							query);
-					})));
+					apply));
 			},
 			&st::menuIconSelect);
 	};
@@ -1714,8 +1712,11 @@ void AddSmartSelectionAction(
 		const auto sender = item->from().get();
 		smart->addAction(
 			tr::lng_context_smart_select_sender(tr::now),
-			[=] { list->selectMatchingMessages(
-				SmartMessageFilter::Sender, sender); },
+			[=] {
+				list->selectMatchingMessages(SmartMessageSelection(
+					SmartMessageFilter::Sender,
+					sender));
+			},
 			&st::menuIconSelect);
 	}
 	menu->addAction(

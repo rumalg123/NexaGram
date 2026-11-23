@@ -4268,7 +4268,8 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		const auto add = [&](HistoryView::SmartMessageFilter filter,
 				const QString &label) {
 			smart->addAction(label, [=] {
-				smartSelectMessages(filter);
+				smartSelectMessages(
+					HistoryView::SmartMessageSelection(filter));
 			}, &st::menuIconSelect);
 		};
 		add(HistoryView::SmartMessageFilter::Photos,
@@ -4287,17 +4288,15 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					? tr::lng_context_smart_select_filename_regex(tr::now)
 					: tr::lng_context_smart_select_filename(tr::now),
 				[=] {
+					const auto apply = crl::guard(
+						this,
+						[=](HistoryView::SmartMessageSelection selection) {
+							smartSelectMessages(std::move(selection));
+						});
 					_controller->show(Box(
 						HistoryView::SmartSelectFilenameBox,
 						regex,
-						crl::guard(this, [=](QString query) {
-							smartSelectMessages(
-								regex
-									? HistoryView::SmartMessageFilter::FilenameRegex
-									: HistoryView::SmartMessageFilter::Filename,
-								nullptr,
-								query);
-						})));
+						apply));
 				},
 				&st::menuIconSelect);
 		};
@@ -4308,8 +4307,9 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			smart->addAction(
 				tr::lng_context_smart_select_sender(tr::now),
 				[=] {
-					smartSelectMessages(
-						HistoryView::SmartMessageFilter::Sender, sender);
+					smartSelectMessages(HistoryView::SmartMessageSelection(
+						HistoryView::SmartMessageFilter::Sender,
+						sender));
 				},
 				&st::menuIconSelect);
 		}
@@ -5718,44 +5718,33 @@ auto HistoryInner::getSelectionState() const
 }
 
 void HistoryInner::smartSelectMessages(
-		HistoryView::SmartMessageFilter filter,
-		const PeerData *sender,
-		const QString &filenameQuery) {
+		HistoryView::SmartMessageSelection selection) {
 	if (hasSelectRestriction()) {
 		return;
 	}
-	const auto regex = QRegularExpression(
-		filenameQuery, QRegularExpression::CaseInsensitiveOption);
-	const auto compiled = (filter == HistoryView::SmartMessageFilter::FilenameRegex)
-		? &regex : nullptr;
-	if (compiled && !compiled->isValid()) {
-		return;
-	}
-	clearTextSelection();
-	_widgetSelection->clear();
-	_selected.clear();
-	const auto append = [&](History *history) {
-		if (!history) {
-			return;
-		}
-		for (const auto &block : history->blocks) {
-			for (const auto &view : block->messages) {
-				if (_selected.size() >= MaxSelectedItems) {
-					return;
-				}
+	const auto scan = [&](not_null<History*> history) {
+		for (const auto &block : ranges::views::reverse(history->blocks)) {
+			for (const auto &view : ranges::views::reverse(block->messages)) {
 				const auto item = view->data();
-				if (!view->isHidden()
-					&& HistoryView::SmartMessageMatches(
-						item, filter, sender, filenameQuery, compiled)) {
-					changeSelection(&_selected, item, SelectAction::Select);
+				if ((!view->isHidden() || view->isHiddenByGroup())
+					&& item->canBeSelected()
+					&& !selection.add(item)) {
+					return false;
 				}
 			}
 		}
+		return true;
 	};
-	append(_migrated);
-	append(_history.get());
-	if (_selected.size() >= MaxSelectedItems) {
-		Ui::Toast::Show(u"Smart Select: maximum 100 messages selected."_q);
+	if (scan(_history) && _migrated) {
+		scan(_migrated);
+	}
+	if (!selection.finish()) {
+		return;
+	}
+	clearTextSelection();
+	_selected.clear();
+	for (const auto &item : selection.items()) {
+		addToSelection(&_selected, item);
 	}
 	_accessibilitySelectionAnchor = nullptr;
 	_widget->updateTopBarSelection();

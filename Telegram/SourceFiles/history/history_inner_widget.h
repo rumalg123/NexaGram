@@ -37,7 +37,7 @@ struct Group;
 } // namespace Data
 
 namespace HistoryView {
-enum class SmartMessageFilter : uchar;
+class SmartMessageSelection;
 class ElementDelegate;
 class EmojiInteractions;
 struct TextState;
@@ -513,10 +513,7 @@ private:
 
 	void applyDragSelection();
 	void applyDragSelection(not_null<SelectedItems*> toItems) const;
-	void smartSelectMessages(
-		HistoryView::SmartMessageFilter filter,
-		const PeerData *sender = nullptr,
-		const QString &filenameQuery = QString());
+	void smartSelectMessages(HistoryView::SmartMessageSelection selection);
 	void addSelectionRange(
 		not_null<SelectedItems*> toItems,
 		not_null<History*> history,

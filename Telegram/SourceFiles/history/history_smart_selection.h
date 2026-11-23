@@ -7,11 +7,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "history/history_item.h"
+#include "config.h"
 #include "data/data_document.h"
 #include "data/data_media_types.h"
+#include "history/history_item.h"
+#include "lang/lang_keys.h"
+#include "ui/toast/toast.h"
 
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QStringList>
 
 namespace HistoryView {
 
@@ -28,43 +33,123 @@ enum class SmartMessageFilter : uchar {
 	FilenameRegex,
 };
 
-[[nodiscard]] inline bool SmartMessageMatches(
-		not_null<HistoryItem*> item,
+class SmartMessageSelection {
+public:
+	explicit SmartMessageSelection(
 		SmartMessageFilter filter,
-		const PeerData *sender = nullptr,
-		const QString &filenameQuery = QString(),
-		const QRegularExpression *filenameRegex = nullptr) {
+		const PeerData *sender = nullptr);
+	explicit SmartMessageSelection(QStringList keywords);
+	explicit SmartMessageSelection(QRegularExpression regex);
+
+	[[nodiscard]] bool add(not_null<HistoryItem*> item);
+	[[nodiscard]] bool finish() const;
+	[[nodiscard]] const std::vector<not_null<HistoryItem*>> &items() const;
+
+private:
+	[[nodiscard]] bool matches(not_null<HistoryItem*> item);
+
+	SmartMessageFilter _filter;
+	const PeerData *_sender = nullptr;
+	QStringList _keywords;
+	QRegularExpression _regex;
+	QElapsedTimer _regexTimer;
+	std::vector<not_null<HistoryItem*>> _items;
+	bool _failed = false;
+	bool _limited = false;
+
+};
+
+inline SmartMessageSelection::SmartMessageSelection(
+	SmartMessageFilter filter,
+	const PeerData *sender)
+: _filter(filter)
+, _sender(sender) {
+}
+
+inline SmartMessageSelection::SmartMessageSelection(QStringList keywords)
+: _filter(SmartMessageFilter::Filename)
+, _keywords(std::move(keywords)) {
+}
+
+inline SmartMessageSelection::SmartMessageSelection(QRegularExpression regex)
+: _filter(SmartMessageFilter::FilenameRegex)
+, _regex(std::move(regex)) {
+}
+
+inline bool SmartMessageSelection::add(not_null<HistoryItem*> item) {
+	if (!matches(item)) {
+		return !_failed;
+	} else if (_items.size() == MaxSelectedItems) {
+		_limited = true;
+		return false;
+	}
+	_items.push_back(item);
+	return true;
+}
+
+inline bool SmartMessageSelection::finish() const {
+	if (_failed) {
+		Ui::Toast::Show(tr::lng_smart_select_regex_failed(tr::now));
+		return false;
+	} else if (_items.empty()) {
+		Ui::Toast::Show(tr::lng_smart_select_no_matches(tr::now));
+		return false;
+	} else if (_limited) {
+		Ui::Toast::Show(tr::lng_smart_select_limit(
+			tr::now,
+			lt_limit,
+			QString::number(MaxSelectedItems)));
+	}
+	return true;
+}
+
+inline auto SmartMessageSelection::items() const
+-> const std::vector<not_null<HistoryItem*>> & {
+	return _items;
+}
+
+inline bool SmartMessageSelection::matches(not_null<HistoryItem*> item) {
+	constexpr auto kRegexScanBudgetMs = 150;
 	if (!item->isRegular() || item->isService()) {
 		return false;
 	}
-	if (filter == SmartMessageFilter::Sender) {
-		return sender && item->from().get() == sender;
+	if (_filter == SmartMessageFilter::Sender) {
+		return _sender && item->from().get() == _sender;
 	}
 	const auto media = item->media();
-	const auto document = media ? media->document() : nullptr;
-	if (filter == SmartMessageFilter::FilenameRegex) {
-		return document && filenameRegex && filenameRegex->isValid()
-			&& filenameRegex->match(document->filename()).hasMatch();
+	if (_filter == SmartMessageFilter::Text) {
+		return !item->originalText().text.isEmpty()
+			&& (!media || media->webpage());
+	} else if (!media || media->webpage()) {
+		return false;
 	}
-	if (filter == SmartMessageFilter::Filename) {
-		// All words are required, in any order. This matches release names
-		// like "[Judas] Overlord S04E02 [720p].mkv" for "overlord 720p mkv".
-		const auto words = filenameQuery.simplified().split(
-			' ', Qt::SkipEmptyParts);
-		if (!document || words.isEmpty()) {
+	const auto document = media->document();
+	if (_filter == SmartMessageFilter::FilenameRegex
+		|| _filter == SmartMessageFilter::Filename) {
+		const auto name = document ? document->filename() : QString();
+		if (name.isEmpty()) {
+			return false;
+		} else if (_filter == SmartMessageFilter::Filename) {
+			return !_keywords.isEmpty()
+				&& ranges::all_of(_keywords, [&](const QString &word) {
+					return name.contains(word, Qt::CaseInsensitive);
+				});
+		}
+		if (!_regexTimer.isValid()) {
+			_regexTimer.start();
+		}
+		if (_regexTimer.hasExpired(kRegexScanBudgetMs)) {
+			_failed = true;
 			return false;
 		}
-		const auto name = document->filename();
-		for (const auto &word : words) {
-			if (!name.contains(word, Qt::CaseInsensitive)) {
-				return false;
-			}
-		}
-		return true;
+		const auto match = _regex.match(name);
+		_failed = !match.isValid()
+			|| _regexTimer.hasExpired(kRegexScanBudgetMs);
+		return !_failed && match.hasMatch();
 	}
-	switch (filter) {
+	switch (_filter) {
 	case SmartMessageFilter::Photos:
-		return media && media->photo();
+		return media->photo();
 	case SmartMessageFilter::Videos:
 		return document && (document->isVideoFile()
 			|| document->isVideoMessage()
@@ -83,8 +168,6 @@ enum class SmartMessageFilter : uchar {
 		return document && (document->isAudioFile()
 			|| document->isVoiceMessage());
 	case SmartMessageFilter::Text:
-		return !item->originalText().text.isEmpty()
-			&& (!media || media->webpage());
 	case SmartMessageFilter::Sender:
 	case SmartMessageFilter::Filename:
 	case SmartMessageFilter::FilenameRegex:
