@@ -197,6 +197,7 @@ public:
 		int limitBefore,
 		int limitAfter) override;
 	bool listAllowsMultiSelect() override;
+	History *listWholeChatHistory() override;
 	bool listIsItemGoodForSelection(not_null<HistoryItem*> item) override;
 	bool listIsLessInOrder(
 		not_null<HistoryItem*> first,

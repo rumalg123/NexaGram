@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_smart_selection.h"
+#include "history/history_smart_selection_box.h"
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
 #include "history/history_item_text.h"
@@ -2162,8 +2163,30 @@ bool ListWidget::canSelectMatchingMessages() const {
 	return _selectEnabled && !hasSelectRestriction();
 }
 
-void ListWidget::selectMatchingMessages(SmartMessageSelection selection) {
+bool ListWidget::canSelectWholeChat() const {
+	return canSelectMatchingMessages() && _delegate->listWholeChatHistory();
+}
+
+void ListWidget::selectMatchingMessages(
+		SmartMessageSelection selection,
+		bool wholeChat) {
 	if (!canSelectMatchingMessages()) {
+		return;
+	}
+	if (wholeChat) {
+		if (const auto history = _delegate->listWholeChatHistory()) {
+			const auto apply = crl::guard(
+				this,
+				[=](SmartMessageSelection result) {
+					applySmartSelection(result, true);
+				});
+			controller()->show(Box(
+				SmartSelectWholeChatBox,
+				this,
+				history,
+				std::move(selection),
+				apply));
+		}
 		return;
 	}
 	const auto scan = [&](const auto &views) {
@@ -2181,14 +2204,26 @@ void ListWidget::selectMatchingMessages(SmartMessageSelection selection) {
 	} else {
 		scan(ranges::views::reverse(_items));
 	}
-	if (!selection.finish()) {
+	applySmartSelection(selection, false);
+}
+
+void ListWidget::applySmartSelection(
+		const SmartMessageSelection &selection,
+		bool wholeChat) {
+	if (!canSelectMatchingMessages() || !selection.finish(wholeChat)) {
+		return;
+	}
+	auto selected = SelectedMap();
+	for (const auto &id : selection.items()) {
+		if (const auto item = session().data().message(id)) {
+			changeSelection(selected, item, SelectAction::Select);
+		}
+	}
+	if (selected.empty()) {
 		return;
 	}
 	clearTextSelection();
-	_selected.clear();
-	for (const auto &item : selection.items()) {
-		addToSelection(_selected, item);
-	}
+	_selected = std::move(selected);
 	_accessibilitySelectionAnchor = nullptr;
 	pushSelectedItems();
 	update();

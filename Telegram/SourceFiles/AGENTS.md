@@ -223,7 +223,7 @@ This atlas divides Telegram Desktop's sources into named areas, ordered from fou
 - The classic `HistoryWidget` and the `ChatWidget`-based replies, topic, sublist, pinned, scheduled and business-message sections, with drag-and-drop, highlights, pull-to-next-channel and swipe-back, plus the support-account tools. The two screen implementations mirror each other, so a change to one usually needs the other.
 
 ### history/list — message list widgets
-- Paths: `SourceFiles/history/view/`, `SourceFiles/history/history_inner_widget*`, `SourceFiles/history/history_message_selection.h`, `SourceFiles/chat_helpers/emoji_interactions*`, `SourceFiles/ui/controls/popup_selector*`, `SourceFiles/ui/controls/dynamic_images_strip*`
+- Paths: `SourceFiles/history/view/`, `SourceFiles/history/history_inner_widget*`, `SourceFiles/history/history_message_selection.h`, `SourceFiles/history/history_smart_selection*`, `SourceFiles/chat_helpers/emoji_interactions*`, `SourceFiles/ui/controls/popup_selector*`, `SourceFiles/ui/controls/dynamic_images_strip*`
 - `HistoryInner` and `ListWidget` with selection and copy, the message context menu, corner buttons, chat preview, reply button, emoji interactions, in-list toasts and read metrics; the two lists mirror each other. It must not own message elements or the sections around the list.
 
 ### history/messages — message elements

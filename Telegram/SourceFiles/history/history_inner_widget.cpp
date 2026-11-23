@@ -4263,60 +4263,17 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	}
 
 	if (!hasSelectRestriction() && (leaderOrSelf || hasSelectedItems())) {
-		auto smart = std::make_unique<Ui::PopupMenu>(
-			this, st::popupMenuWithIcons);
-		const auto add = [&](HistoryView::SmartMessageFilter filter,
-				const QString &label) {
-			smart->addAction(label, [=] {
-				smartSelectMessages(
-					HistoryView::SmartMessageSelection(filter));
-			}, &st::menuIconSelect);
-		};
-		add(HistoryView::SmartMessageFilter::Photos,
-			tr::lng_context_smart_select_photos(tr::now));
-		add(HistoryView::SmartMessageFilter::Videos,
-			tr::lng_context_smart_select_videos(tr::now));
-		add(HistoryView::SmartMessageFilter::Files,
-			tr::lng_context_smart_select_files(tr::now));
-		add(HistoryView::SmartMessageFilter::Audio,
-			tr::lng_context_smart_select_audio(tr::now));
-		add(HistoryView::SmartMessageFilter::Text,
-			tr::lng_context_smart_select_text(tr::now));
-		const auto addFilename = [&](bool regex) {
-			smart->addAction(
-				regex
-					? tr::lng_context_smart_select_filename_regex(tr::now)
-					: tr::lng_context_smart_select_filename(tr::now),
-				[=] {
-					const auto apply = crl::guard(
-						this,
-						[=](HistoryView::SmartMessageSelection selection) {
-							smartSelectMessages(std::move(selection));
-						});
-					_controller->show(Box(
-						HistoryView::SmartSelectFilenameBox,
-						regex,
-						apply));
-				},
-				&st::menuIconSelect);
-		};
-		addFilename(false);
-		addFilename(true);
-		if (leaderOrSelf) {
-			const auto sender = leaderOrSelf->from().get();
-			smart->addAction(
-				tr::lng_context_smart_select_sender(tr::now),
-				[=] {
-					smartSelectMessages(HistoryView::SmartMessageSelection(
-						HistoryView::SmartMessageFilter::Sender,
-						sender));
-				},
-				&st::menuIconSelect);
-		}
-		_menu->addAction(
-			tr::lng_context_smart_select(tr::now),
-			std::move(smart),
-			&st::menuIconSelect);
+		HistoryView::AddSmartSelectActions(
+			_menu.get(),
+			this,
+			_controller,
+			leaderOrSelf ? leaderOrSelf->from().get() : nullptr,
+			true,
+			crl::guard(this, [=](
+					HistoryView::SmartMessageSelection selection,
+					bool wholeChat) {
+				smartSelectMessages(std::move(selection), wholeChat);
+			}));
 	}
 
 	if (_menu->empty()) {
@@ -5718,8 +5675,23 @@ auto HistoryInner::getSelectionState() const
 }
 
 void HistoryInner::smartSelectMessages(
-		HistoryView::SmartMessageSelection selection) {
+		HistoryView::SmartMessageSelection selection,
+		bool wholeChat) {
 	if (hasSelectRestriction()) {
+		return;
+	}
+	if (wholeChat) {
+		const auto apply = crl::guard(
+			this,
+			[=](HistoryView::SmartMessageSelection result) {
+				applySmartSelection(result, true);
+			});
+		_controller->show(Box(
+			HistoryView::SmartSelectWholeChatBox,
+			this,
+			_history,
+			std::move(selection),
+			apply));
 		return;
 	}
 	const auto scan = [&](not_null<History*> history) {
@@ -5738,14 +5710,26 @@ void HistoryInner::smartSelectMessages(
 	if (scan(_history) && _migrated) {
 		scan(_migrated);
 	}
-	if (!selection.finish()) {
+	applySmartSelection(selection, false);
+}
+
+void HistoryInner::applySmartSelection(
+		const HistoryView::SmartMessageSelection &selection,
+		bool wholeChat) {
+	if (hasSelectRestriction() || !selection.finish(wholeChat)) {
+		return;
+	}
+	auto selected = SelectedItems();
+	for (const auto &id : selection.items()) {
+		if (const auto item = session().data().message(id)) {
+			changeSelection(&selected, item, SelectAction::Select);
+		}
+	}
+	if (selected.empty()) {
 		return;
 	}
 	clearTextSelection();
-	_selected.clear();
-	for (const auto &item : selection.items()) {
-		addToSelection(&_selected, item);
-	}
+	_selected = std::move(selected);
 	_accessibilitySelectionAnchor = nullptr;
 	_widget->updateTopBarSelection();
 	update();

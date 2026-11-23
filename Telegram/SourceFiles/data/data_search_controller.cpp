@@ -201,16 +201,11 @@ std::optional<SearchRequest> PrepareSearchRequest(
 		MTP_long(hash));
 }
 
-SearchResult ParseSearchResult(
+FetchedMessagesPage ProcessFetchedMessages(
 		not_null<PeerData*> peer,
-		Storage::SharedMediaType type,
-		MsgId messageId,
-		Data::LoadDirection direction,
-		const SearchRequestResult &data) {
-	auto result = SearchResult();
-	result.noSkipRange = MsgRange{ messageId, messageId };
-
-	auto messages = [&] {
+		const MTPmessages_Messages &data) {
+	auto result = FetchedMessagesPage();
+	result.messages = [&] {
 		switch (data.type()) {
 		case mtpc_messages_messages: {
 			auto &d = data.c_messages_messages();
@@ -247,13 +242,25 @@ SearchResult ParseSearchResult(
 
 		case mtpc_messages_messagesNotModified: {
 			LOG(("API Error: received messages.messagesNotModified! "
-				"(ParseSearchResult)"));
+				"(ProcessFetchedMessages)"));
 			return (const QVector<MTPMessage>*)nullptr;
 		} break;
 		}
-		Unexpected("messages.Messages type in ParseSearchResult()");
+		Unexpected("messages.Messages type in ProcessFetchedMessages()");
 	}();
+	return result;
+}
 
+SearchResult ParseSearchResult(
+		not_null<PeerData*> peer,
+		Storage::SharedMediaType type,
+		MsgId messageId,
+		Data::LoadDirection direction,
+		const SearchRequestResult &data) {
+	const auto [messages, fullCount] = ProcessFetchedMessages(peer, data);
+	auto result = SearchResult();
+	result.noSkipRange = MsgRange{ messageId, messageId };
+	result.fullCount = fullCount;
 	if (!messages) {
 		return result;
 	}

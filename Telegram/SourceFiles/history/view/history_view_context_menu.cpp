@@ -1670,59 +1670,15 @@ void AddSmartSelectionAction(
 		|| (!request.item && request.selectedItems.empty())) {
 		return;
 	}
-	auto smart = std::make_unique<Ui::PopupMenu>(
-		list, st::popupMenuWithIcons);
-	const auto add = [&](SmartMessageFilter filter,
-			const QString &label) {
-		smart->addAction(label, [=] {
-			list->selectMatchingMessages(SmartMessageSelection(filter));
-		}, &st::menuIconSelect);
-	};
-	add(SmartMessageFilter::Photos,
-		tr::lng_context_smart_select_photos(tr::now));
-	add(SmartMessageFilter::Videos,
-		tr::lng_context_smart_select_videos(tr::now));
-	add(SmartMessageFilter::Files,
-		tr::lng_context_smart_select_files(tr::now));
-	add(SmartMessageFilter::Audio,
-		tr::lng_context_smart_select_audio(tr::now));
-	add(SmartMessageFilter::Text,
-		tr::lng_context_smart_select_text(tr::now));
-	const auto addFilename = [&](bool regex) {
-		smart->addAction(
-			regex
-				? tr::lng_context_smart_select_filename_regex(tr::now)
-				: tr::lng_context_smart_select_filename(tr::now),
-			[=] {
-				const auto apply = crl::guard(
-					list,
-					[=](SmartMessageSelection selection) {
-						list->selectMatchingMessages(std::move(selection));
-					});
-				list->controller()->show(Box(
-					SmartSelectFilenameBox,
-					regex,
-					apply));
-			},
-			&st::menuIconSelect);
-	};
-	addFilename(false);
-	addFilename(true);
-	if (const auto item = request.item) {
-		const auto sender = item->from().get();
-		smart->addAction(
-			tr::lng_context_smart_select_sender(tr::now),
-			[=] {
-				list->selectMatchingMessages(SmartMessageSelection(
-					SmartMessageFilter::Sender,
-					sender));
-			},
-			&st::menuIconSelect);
-	}
-	menu->addAction(
-		tr::lng_context_smart_select(tr::now),
-		std::move(smart),
-		&st::menuIconSelect);
+	AddSmartSelectActions(
+		menu,
+		list,
+		list->controller(),
+		request.item ? request.item->from().get() : nullptr,
+		list->canSelectWholeChat(),
+		crl::guard(list, [=](SmartMessageSelection selection, bool wholeChat) {
+			list->selectMatchingMessages(std::move(selection), wholeChat);
+		}));
 }
 
 void AddSelectionAction(

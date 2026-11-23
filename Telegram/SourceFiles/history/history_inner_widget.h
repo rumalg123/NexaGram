@@ -513,7 +513,12 @@ private:
 
 	void applyDragSelection();
 	void applyDragSelection(not_null<SelectedItems*> toItems) const;
-	void smartSelectMessages(HistoryView::SmartMessageSelection selection);
+	void smartSelectMessages(
+		HistoryView::SmartMessageSelection selection,
+		bool wholeChat);
+	void applySmartSelection(
+		const HistoryView::SmartMessageSelection &selection,
+		bool wholeChat);
 	void addSelectionRange(
 		not_null<SelectedItems*> toItems,
 		not_null<History*> history,

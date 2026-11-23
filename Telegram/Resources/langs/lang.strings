@@ -5433,6 +5433,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_context_forward_selected" = "Forward Selected";
 "lng_context_forward_selected_keep" = "Forward Selected (Keep Selection)";
 "lng_context_smart_select" = "Smart Select (Loaded Messages)";
+"lng_context_smart_select_whole_chat" = "Smart Select (Whole Chat)";
 "lng_context_smart_select_photos" = "Photos";
 "lng_context_smart_select_videos" = "Videos and GIFs";
 "lng_context_smart_select_files" = "Files";
@@ -5447,7 +5448,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_smart_select_regex_invalid" = "Invalid regular expression: {error}";
 "lng_smart_select_regex_failed" = "Couldn't finish matching the filenames. Try a simpler regular expression.";
 "lng_smart_select_no_matches" = "No selectable messages match in the loaded history.";
+"lng_smart_select_no_chat_matches" = "No selectable messages match in this chat.";
 "lng_smart_select_limit" = "More messages matched. Selected the latest {limit}.";
+"lng_smart_select_chat_progress" = "Checked {checked} messages. Found {found} of {limit} matches.";
+"lng_smart_select_chat_wait" = "Telegram asked to wait {duration}. The search will resume automatically.";
+"lng_smart_select_chat_failed" = "Couldn't finish searching chat history. Try again.";
 "lng_context_send_now_selected" = "Send selected now";
 "lng_context_reschedule_selected" = "Reschedule Selected";
 "lng_context_delete_selected" = "Delete Selected";

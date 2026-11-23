@@ -1271,6 +1271,7 @@ PRIVATE
     history/history_item_text.cpp
     history/history_item_text.h
     history/history_inner_widget.cpp
+    history/history_smart_selection_box.cpp
     history/history_inner_widget.h
     history/history_inner_widget_accessibility.cpp
     history/history_inner_widget_accessibility.h

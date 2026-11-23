@@ -30,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 struct ClickHandlerContext;
 struct HistorySelectedTextParts;
+class History;
 
 namespace Main {
 class Session;
@@ -144,6 +145,9 @@ public:
 		int limitBefore,
 		int limitAfter) = 0;
 	virtual bool listAllowsMultiSelect() = 0;
+	virtual History *listWholeChatHistory() {
+		return nullptr;
+	}
 	virtual bool listIsItemGoodForSelection(not_null<HistoryItem*> item) = 0;
 	virtual bool listIsLessInOrder(
 		not_null<HistoryItem*> first,
@@ -407,7 +411,10 @@ public:
 	void cancelSelection();
 	[[nodiscard]] bool wasSelectedText() const;
 	[[nodiscard]] bool canSelectMatchingMessages() const;
-	void selectMatchingMessages(SmartMessageSelection selection);
+	[[nodiscard]] bool canSelectWholeChat() const;
+	void selectMatchingMessages(
+		SmartMessageSelection selection,
+		bool wholeChat);
 	void selectItem(not_null<HistoryItem*> item);
 	void selectItemAsGroup(not_null<HistoryItem*> item);
 	void selectItemsUpTo(not_null<HistoryItem*> item);
@@ -853,6 +860,9 @@ private:
 	bool addToSelection(
 		SelectedMap &applyTo,
 		not_null<HistoryItem*> item) const;
+	void applySmartSelection(
+		const SmartMessageSelection &selection,
+		bool wholeChat);
 	bool removeFromSelection(
 		SelectedMap &applyTo,
 		FullMsgId itemId) const;

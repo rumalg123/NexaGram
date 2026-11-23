@@ -5344,6 +5344,10 @@ bool ChatWidget::listAllowsMultiSelect() {
 	return true;
 }
 
+History *ChatWidget::listWholeChatHistory() {
+	return (mode() == Mode::History) ? _history.get() : nullptr;
+}
+
 bool ChatWidget::listIsItemGoodForSelection(
 		not_null<HistoryItem*> item) {
 	return item->canBeSelected();

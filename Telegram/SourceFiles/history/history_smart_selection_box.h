@@ -16,7 +16,32 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h"
 #include "styles/style_layers.h"
 
+class History;
+
+namespace Ui {
+class PopupMenu;
+} // namespace Ui
+
+namespace Window {
+class SessionController;
+} // namespace Window
+
 namespace HistoryView {
+
+void AddSmartSelectActions(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<QWidget*> parent,
+	not_null<Window::SessionController*> controller,
+	const PeerData *sender,
+	bool wholeChatAvailable,
+	Fn<void(SmartMessageSelection, bool)> apply);
+
+void SmartSelectWholeChatBox(
+	not_null<Ui::GenericBox*> box,
+	not_null<Ui::RpWidget*> origin,
+	not_null<History*> history,
+	SmartMessageSelection selection,
+	Fn<void(SmartMessageSelection)> apply);
 
 // Uses Telegram's themed GenericBox and InputField instead of an OS-native
 // input dialog, so custom day/night themes remain consistent.

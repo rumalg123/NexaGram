@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "config.h"
 #include "data/data_document.h"
 #include "data/data_media_types.h"
+#include "data/data_peer.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
 #include "ui/toast/toast.h"
@@ -20,8 +21,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace HistoryView {
 
-// Smart Select works on messages already loaded by the current chat view.
-// It does not fetch history or download any media.
 enum class SmartMessageFilter : uchar {
 	Photos,
 	Videos,
@@ -41,9 +40,12 @@ public:
 	explicit SmartMessageSelection(QStringList keywords);
 	explicit SmartMessageSelection(QRegularExpression regex);
 
+	[[nodiscard]] bool mayMatchUnloaded(const MTPMessage &message) const;
 	[[nodiscard]] bool add(not_null<HistoryItem*> item);
-	[[nodiscard]] bool finish() const;
-	[[nodiscard]] const std::vector<not_null<HistoryItem*>> &items() const;
+	void remove(FullMsgId id);
+	void resetRegexBudget();
+	[[nodiscard]] bool finish(bool wholeChat = false) const;
+	[[nodiscard]] const MessageIdsList &items() const;
 
 private:
 	[[nodiscard]] bool matches(not_null<HistoryItem*> item);
@@ -53,7 +55,7 @@ private:
 	QStringList _keywords;
 	QRegularExpression _regex;
 	QElapsedTimer _regexTimer;
-	std::vector<not_null<HistoryItem*>> _items;
+	MessageIdsList _items;
 	bool _failed = false;
 	bool _limited = false;
 
@@ -76,6 +78,25 @@ inline SmartMessageSelection::SmartMessageSelection(QRegularExpression regex)
 , _regex(std::move(regex)) {
 }
 
+inline bool SmartMessageSelection::mayMatchUnloaded(
+		const MTPMessage &message) const {
+	if (message.type() != mtpc_message) {
+		return false;
+	}
+	const auto &data = message.c_message();
+	if (_filter == SmartMessageFilter::Text) {
+		return true;
+	} else if (_filter == SmartMessageFilter::Sender) {
+		const auto sender = data.vfrom_id();
+		return _sender && (!sender || peerFromMTP(*sender) == _sender->id);
+	}
+	const auto media = data.vmedia();
+	const auto type = (_filter == SmartMessageFilter::Photos)
+		? mtpc_messageMediaPhoto
+		: mtpc_messageMediaDocument;
+	return media && (media->type() == type);
+}
+
 inline bool SmartMessageSelection::add(not_null<HistoryItem*> item) {
 	if (!matches(item)) {
 		return !_failed;
@@ -83,16 +104,26 @@ inline bool SmartMessageSelection::add(not_null<HistoryItem*> item) {
 		_limited = true;
 		return false;
 	}
-	_items.push_back(item);
+	_items.push_back(item->fullId());
 	return true;
 }
 
-inline bool SmartMessageSelection::finish() const {
+inline void SmartMessageSelection::remove(FullMsgId id) {
+	std::erase(_items, id);
+}
+
+inline void SmartMessageSelection::resetRegexBudget() {
+	_regexTimer.invalidate();
+}
+
+inline bool SmartMessageSelection::finish(bool wholeChat) const {
 	if (_failed) {
 		Ui::Toast::Show(tr::lng_smart_select_regex_failed(tr::now));
 		return false;
 	} else if (_items.empty()) {
-		Ui::Toast::Show(tr::lng_smart_select_no_matches(tr::now));
+		Ui::Toast::Show(wholeChat
+			? tr::lng_smart_select_no_chat_matches(tr::now)
+			: tr::lng_smart_select_no_matches(tr::now));
 		return false;
 	} else if (_limited) {
 		Ui::Toast::Show(tr::lng_smart_select_limit(
@@ -103,8 +134,7 @@ inline bool SmartMessageSelection::finish() const {
 	return true;
 }
 
-inline auto SmartMessageSelection::items() const
--> const std::vector<not_null<HistoryItem*>> & {
+inline const MessageIdsList &SmartMessageSelection::items() const {
 	return _items;
 }
 

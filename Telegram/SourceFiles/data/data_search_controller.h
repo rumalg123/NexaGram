@@ -37,6 +37,15 @@ using HistoryResult = SearchResult;
 using HistoryRequest = MTPmessages_GetHistory;
 using HistoryRequestResult = MTPmessages_Messages;
 
+struct FetchedMessagesPage {
+	const QVector<MTPMessage> *messages = nullptr;
+	int fullCount = 0;
+};
+
+[[nodiscard]] FetchedMessagesPage ProcessFetchedMessages(
+	not_null<PeerData*> peer,
+	const MTPmessages_Messages &data);
+
 using GlobalMediaRequest = MTPmessages_SearchGlobal;
 struct GlobalMediaResult {
 	std::vector<Data::MessagePosition> messageIds;
