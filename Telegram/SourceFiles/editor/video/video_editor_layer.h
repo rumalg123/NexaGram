@@ -54,7 +54,8 @@ void PrepareProfileMediaFromFile(
 	not_null<QWidget*> parent,
 	not_null<Window::Controller*> controller,
 	EditorData data,
-	Fn<void(ProfileMedia&&)> &&doneCallback);
+	Fn<void(ProfileMedia&&)> &&doneCallback,
+	bool offerClipboard = true);
 
 void OpenWithPreparedVideoFile(
 	not_null<QWidget*> parent,

@@ -129,11 +129,13 @@ public:
 
 	void kick(
 		not_null<ChatData*> chat,
-		not_null<PeerData*> participant);
+		not_null<PeerData*> participant,
+		Fn<void(bool)> done = nullptr);
 	void kick(
 		not_null<ChannelData*> channel,
 		not_null<PeerData*> participant,
-		ChatRestrictionsInfo currentRights);
+		ChatRestrictionsInfo currentRights,
+		Fn<void(bool)> done = nullptr);
 	void unblock(
 		not_null<ChannelData*> channel,
 		not_null<PeerData*> participant);

@@ -58,9 +58,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_menu_icons.h"
 #include "styles/style_userpic_button.h"
 
-#include <QtGui/QClipboard>
-#include <QtGui/QGuiApplication>
-
 namespace Ui {
 namespace {
 
@@ -362,7 +359,7 @@ void UserpicButton::choosePhotoLocally() {
 			.forOtherUser = (user && !user->isSelf()),
 		};
 	};
-	const auto chooseFile = [=](ChosenType type) {
+	const auto chooseFile = [=](ChosenType type, bool offerClipboard = false) {
 		base::call_delayed(
 			_st.changeButton.ripple.hideDuration,
 			crl::guard(this, [=] {
@@ -371,13 +368,15 @@ void UserpicButton::choosePhotoLocally() {
 						this,
 						_window,
 						editorData(type),
-						mediaCallback(type));
+						mediaCallback(type),
+						offerClipboard);
 				} else {
 					PrepareProfilePhotoFromFile(
 						this,
 						_window,
 						editorData(type),
-						callback(type));
+						callback(type),
+						offerClipboard);
 				}
 			}));
 	};
@@ -402,21 +401,19 @@ void UserpicButton::choosePhotoLocally() {
 			useForumShape());
 	};
 	const auto addFromClipboard = [=](ChosenType type, tr::phrase<> text) {
-		if (const auto data = QGuiApplication::clipboard()->mimeData()) {
-			if (data->hasImage()) {
-				auto openEditor = crl::guard(this, [=, this] {
+		auto image = Editor::ProfileClipboardImage();
+		if (!image.isNull()) {
+			_menu->addAction(
+				std::move(text)(tr::now),
+				crl::guard(this, [=, image = std::move(image)]() mutable {
 					Editor::PrepareProfilePhoto(
 						this,
 						_window,
 						editorData(type),
 						callback(type),
-						QGuiApplication::clipboard()->image());
-				});
-				_menu->addAction(
-					std::move(text)(tr::now),
-					std::move(openEditor),
-					&st::menuIconPhoto);
-			}
+						std::move(image));
+				}),
+				&st::menuIconPhoto);
 		}
 	};
 	_menu = base::make_unique_q<Ui::PopupMenu>(
@@ -469,7 +466,7 @@ void UserpicButton::choosePhotoLocally() {
 				tr::lng_profile_photo_from_clipboard);
 			addUserpicBuilder(ChosenType::Set);
 		} else {
-			chooseFile(ChosenType::Set);
+			chooseFile(ChosenType::Set, true);
 		}
 		if (user && user->isSelf()) {
 			const auto key = Api::UserPrivacy::Key::ProfilePhoto;

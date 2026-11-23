@@ -755,7 +755,8 @@ void ChatParticipants::requestSelf(not_null<ChannelData*> channel) {
 
 void ChatParticipants::kick(
 		not_null<ChatData*> chat,
-		not_null<PeerData*> participant) {
+		not_null<PeerData*> participant,
+		Fn<void(bool)> done) {
 	Expects(participant->isUser());
 
 	_api.request(MTPmessages_DeleteChatUser(
@@ -764,15 +765,28 @@ void ChatParticipants::kick(
 		participant->asUser()->inputUser()
 	)).done([=](const MTPUpdates &result) {
 		chat->session().api().applyUpdates(result);
+		if (done) {
+			done(true);
+		}
+	}).fail([=] {
+		if (done) {
+			done(false);
+		}
 	}).send();
 }
 
 void ChatParticipants::kick(
 		not_null<ChannelData*> channel,
 		not_null<PeerData*> participant,
-		ChatRestrictionsInfo currentRights) {
+		ChatRestrictionsInfo currentRights,
+		Fn<void(bool)> done) {
 	const auto kick = KickRequest(channel, participant);
-	if (_kickRequests.contains(kick)) return;
+	if (_kickRequests.contains(kick)) {
+		if (done) {
+			done(false);
+		}
+		return;
+	}
 
 	const auto rights = ChannelData::KickedRestrictedRights(participant);
 	const auto requestId = _api.request(MTPchannels_EditBanned(
@@ -785,8 +799,14 @@ void ChatParticipants::kick(
 		_kickRequests.remove(KickRequest(channel, participant));
 		channel->applyEditBanned(participant, currentRights, rights);
 		applyKicked(channel, participant, true);
-	}).fail([this, kick] {
+		if (done) {
+			done(true);
+		}
+	}).fail([this, kick, done] {
 		_kickRequests.remove(kick);
+		if (done) {
+			done(false);
+		}
 	}).send();
 
 	_kickRequests.emplace(kick, requestId);

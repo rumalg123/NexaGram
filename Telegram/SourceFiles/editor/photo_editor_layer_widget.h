@@ -51,6 +51,13 @@ void PrepareProfilePhotoFromFile(
 	not_null<QWidget*> parent,
 	not_null<Window::Controller*> controller,
 	EditorData data,
-	Fn<void(QImage &&image)> &&doneCallback);
+	Fn<void(QImage &&image)> &&doneCallback,
+	bool offerClipboard = true);
+
+[[nodiscard]] QImage ProfileClipboardImage();
+void ChooseProfilePhotoSource(
+	not_null<Window::Controller*> controller,
+	Fn<void()> fromFile,
+	Fn<void(QImage&&)> fromClipboard);
 
 } // namespace Editor

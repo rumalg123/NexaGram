@@ -196,6 +196,9 @@ public:
 		not_null<Window::SessionNavigation*> navigation,
 		not_null<PeerData*> peer,
 		Role role);
+	static void StartFiltered(
+		not_null<Window::SessionNavigation*> navigation,
+		not_null<PeerData*> peer);
 
 	ParticipantsBoxController(
 		not_null<Window::SessionNavigation*> navigation,
@@ -215,7 +218,7 @@ public:
 		not_null<PeerListRow*> row) override;
 	void loadMoreRows() override;
 	bool trackSelectedList() override {
-		return !_stories;
+		return !_stories && _memberFilter == MemberFilter::None;
 	}
 
 	void peerListSearchAddRow(not_null<PeerData*> peer) override;
@@ -256,6 +259,18 @@ protected:
 	mutable base::flat_map<QRgb, QImage> _pillCircleCache;
 
 private:
+	enum class MemberFilter { None, Members, Bots, Deleted };
+
+	static void OpenFiltered(
+		not_null<Window::SessionNavigation*> navigation,
+		not_null<PeerData*> peer,
+		MemberFilter filter);
+	[[nodiscard]] bool matchesMemberFilter(not_null<PeerData*> peer) const;
+	[[nodiscard]] bool canRemoveFiltered(not_null<PeerData*> peer) const;
+	void removeCheckedFiltered();
+	void confirmFilteredRemoval(std::vector<not_null<PeerData*>> peers);
+	void removeNextFiltered();
+
 	struct SavedState : SavedStateBase {
 		explicit SavedState(const ParticipantsAdditionalData &additional);
 
@@ -335,6 +350,12 @@ private:
 	not_null<PeerData*> _peer;
 	MTP::Sender _api;
 	Role _role = Role::Admins;
+	MemberFilter _memberFilter = MemberFilter::None;
+	std::vector<not_null<PeerData*>> _filteredRemoval;
+	PeerId _filteredTarget = 0;
+	int _filteredRemoved = 0;
+	int _filteredFailed = 0;
+	bool _removingFiltered = false;
 	int _offset = 0;
 	mtpRequestId _loadRequestId = 0;
 	mtpRequestId _adminsRequestId = 0;

@@ -139,7 +139,24 @@ void PrepareProfileMediaFromFile(
 		not_null<QWidget*> parent,
 		not_null<Window::Controller*> controller,
 		EditorData data,
-		Fn<void(ProfileMedia&&)> &&doneCallback) {
+		Fn<void(ProfileMedia&&)> &&doneCallback,
+		bool offerClipboard) {
+	if (offerClipboard) {
+		ChooseProfilePhotoSource(
+			controller,
+			crl::guard(parent, [=, done = doneCallback]() mutable {
+				PrepareProfileMediaFromFile(
+					parent, controller, data, std::move(done), false);
+			}),
+			crl::guard(parent, [=, done = doneCallback](QImage &&image) mutable {
+				auto photoDone = [done](QImage &&result) {
+					done({ .image = std::move(result) });
+				};
+				PrepareProfilePhoto(
+					parent, controller, data, std::move(photoDone), std::move(image));
+			}));
+		return;
+	}
 	const auto callback = [=, done = std::move(doneCallback)](
 			const FileDialog::OpenResult &result) mutable {
 		if (result.paths.isEmpty() && result.remoteContent.isEmpty()) {

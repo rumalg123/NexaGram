@@ -1805,6 +1805,14 @@ void Controller::fillManageSection() {
 			},
 			{ &st::menuIconRemovedUsers });
 	}
+	if (canViewMembers) {
+		AddButtonWithCount(
+			_controls.buttonsLayout,
+			tr::lng_manage_peer_filter_members(),
+			rpl::single(QString()),
+			[=] { ParticipantsBoxController::StartFiltered(_navigation, _peer); },
+			{ &st::menuIconGroups });
+	}
 	if (hasRecentActions) {
 		auto callback = [=] {
 			_navigation->showSection(

@@ -1522,7 +1522,8 @@ void TopBar::setupUserpicButton(
 					this,
 					&controller->window(),
 					editorData(type),
-					chosenMediaCallback(type));
+					chosenMediaCallback(type),
+					false);
 			}));
 	};
 
@@ -1530,21 +1531,19 @@ void TopBar::setupUserpicButton(
 			Ui::PopupMenu *menu,
 			ChosenType type,
 			tr::phrase<> text) {
-		if (const auto data = QGuiApplication::clipboard()->mimeData()) {
-			if (data->hasImage()) {
-				auto openEditor = crl::guard(this, [=] {
+		auto image = Editor::ProfileClipboardImage();
+		if (!image.isNull()) {
+			menu->addAction(
+				std::move(text)(tr::now),
+				crl::guard(this, [=, image = std::move(image)]() mutable {
 					Editor::PrepareProfilePhoto(
 						this,
 						&controller->window(),
 						editorData(type),
 						choosePhotoCallback(type),
-						QGuiApplication::clipboard()->image());
-				});
-				menu->addAction(
-					std::move(text)(tr::now),
-					std::move(openEditor),
-					&st::menuIconPhoto);
-			}
+						std::move(image));
+				}),
+				&st::menuIconPhoto);
 		}
 	};
 

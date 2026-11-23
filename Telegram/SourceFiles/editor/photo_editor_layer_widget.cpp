@@ -11,12 +11,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/confirm_box.h" // InformBox
 #include "editor/editor_layer_widget.h"
 #include "editor/photo_editor.h"
+#include "core/mime_type.h"
 #include "storage/localimageloader.h"
 #include "storage/storage_media_prepare.h"
 #include "ui/chat/attach/attach_prepare.h"
+#include "ui/layers/generic_box.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
 
+#include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
 
 namespace Editor {
@@ -148,11 +151,58 @@ void PrepareProfilePhoto(
 	controller->showLayer(std::move(layer), Ui::LayerOption::KeepOther);
 }
 
+QImage ProfileClipboardImage() {
+	const auto data = QGuiApplication::clipboard()->mimeData();
+	return data ? Core::ReadMimeImage(data).image : QImage();
+}
+
+void ChooseProfilePhotoSource(
+		not_null<Window::Controller*> controller,
+		Fn<void()> fromFile,
+		Fn<void(QImage&&)> fromClipboard) {
+	auto image = ProfileClipboardImage();
+	if (image.isNull()) {
+		fromFile();
+		return;
+	}
+	controller->show(Box([=, image = std::move(image)](
+			not_null<Ui::GenericBox*> box) {
+		box->setTitle(tr::lng_choose_image());
+		box->addButton(tr::lng_profile_photo_from_clipboard(), [=] {
+			const auto callback = fromClipboard;
+			auto selected = image;
+			box->closeBox();
+			callback(std::move(selected));
+		});
+		box->addButton(tr::lng_attach_file(), [=] {
+			const auto callback = fromFile;
+			box->closeBox();
+			callback();
+		});
+		box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+	}));
+}
+
 void PrepareProfilePhotoFromFile(
 		not_null<QWidget*> parent,
 		not_null<Window::Controller*> controller,
 		EditorData data,
-		Fn<void(QImage &&image)> &&doneCallback) {
+		Fn<void(QImage &&image)> &&doneCallback,
+		bool offerClipboard) {
+	if (offerClipboard) {
+		ChooseProfilePhotoSource(
+			controller,
+			crl::guard(parent, [=, done = doneCallback]() mutable {
+				PrepareProfilePhotoFromFile(
+					parent, controller, data, std::move(done), false);
+			}),
+			crl::guard(parent, [=, done = doneCallback](
+					QImage &&image) mutable {
+				PrepareProfilePhoto(
+					parent, controller, data, std::move(done), std::move(image));
+			}));
+		return;
+	}
 	const auto callback = [=, done = std::move(doneCallback)](
 			const FileDialog::OpenResult &result) mutable {
 		if (result.paths.isEmpty() && result.remoteContent.isEmpty()) {
