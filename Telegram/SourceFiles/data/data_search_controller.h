@@ -89,7 +89,8 @@ struct GlobalMediaResult {
 [[nodiscard]] HistoryRequest PrepareHistoryRequest(
 	not_null<PeerData*> peer,
 	MsgId messageId,
-	Data::LoadDirection direction);
+	Data::LoadDirection direction,
+	std::optional<MsgRange> inclusiveRange = std::nullopt);
 
 [[nodiscard]] HistoryResult ParseHistoryResult(
 	not_null<PeerData*> peer,

@@ -19,6 +19,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QRegularExpression>
 #include <QtCore/QStringList>
 
+#include <optional>
+
 namespace HistoryView {
 
 enum class SmartMessageFilter : uchar {
@@ -32,6 +34,11 @@ enum class SmartMessageFilter : uchar {
 	FilenameRegex,
 };
 
+struct SmartSelectionRange {
+	PeerId peer = 0;
+	MsgRange ids;
+};
+
 class SmartMessageSelection {
 public:
 	explicit SmartMessageSelection(
@@ -42,6 +49,9 @@ public:
 
 	[[nodiscard]] bool mayMatchUnloaded(const MTPMessage &message) const;
 	[[nodiscard]] bool add(not_null<HistoryItem*> item);
+	void limitTo(SmartSelectionRange range);
+	[[nodiscard]] bool includes(FullMsgId id) const;
+	[[nodiscard]] const std::optional<SmartSelectionRange> &range() const;
 	void remove(FullMsgId id);
 	void resetRegexBudget();
 	[[nodiscard]] bool finish(bool wholeChat = false) const;
@@ -56,6 +66,7 @@ private:
 	QRegularExpression _regex;
 	QElapsedTimer _regexTimer;
 	MessageIdsList _items;
+	std::optional<SmartSelectionRange> _range;
 	bool _failed = false;
 	bool _limited = false;
 
@@ -98,7 +109,9 @@ inline bool SmartMessageSelection::mayMatchUnloaded(
 }
 
 inline bool SmartMessageSelection::add(not_null<HistoryItem*> item) {
-	if (!matches(item)) {
+	if (!includes(item->fullId())) {
+		return true;
+	} else if (!matches(item)) {
 		return !_failed;
 	} else if (_items.size() == MaxSelectedItems) {
 		_limited = true;
@@ -106,6 +119,22 @@ inline bool SmartMessageSelection::add(not_null<HistoryItem*> item) {
 	}
 	_items.push_back(item->fullId());
 	return true;
+}
+
+inline void SmartMessageSelection::limitTo(SmartSelectionRange range) {
+	_range = range;
+}
+
+inline bool SmartMessageSelection::includes(FullMsgId id) const {
+	return !_range
+		|| (id.peer == _range->peer
+			&& id.msg >= _range->ids.from
+			&& id.msg <= _range->ids.till);
+}
+
+inline auto SmartMessageSelection::range() const
+-> const std::optional<SmartSelectionRange> & {
+	return _range;
 }
 
 inline void SmartMessageSelection::remove(FullMsgId id) {
@@ -121,7 +150,9 @@ inline bool SmartMessageSelection::finish(bool wholeChat) const {
 		Ui::Toast::Show(tr::lng_smart_select_regex_failed(tr::now));
 		return false;
 	} else if (_items.empty()) {
-		Ui::Toast::Show(wholeChat
+		Ui::Toast::Show(_range
+			? tr::lng_smart_select_no_range_matches(tr::now)
+			: wholeChat
 			? tr::lng_smart_select_no_chat_matches(tr::now)
 			: tr::lng_smart_select_no_matches(tr::now));
 		return false;

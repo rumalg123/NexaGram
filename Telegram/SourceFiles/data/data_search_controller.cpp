@@ -16,6 +16,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "apiwrap.h"
 
+#include <limits>
+
 namespace Api {
 namespace {
 
@@ -301,11 +303,18 @@ SearchResult ParseSearchResult(
 HistoryRequest PrepareHistoryRequest(
 		not_null<PeerData*> peer,
 		MsgId messageId,
-		Data::LoadDirection direction) {
-	const auto minId = 0;
-	const auto maxId = 0;
+		Data::LoadDirection direction,
+		std::optional<MsgRange> inclusiveRange) {
+	constexpr auto kMaxOffset = std::numeric_limits<int32>::max();
+	const auto minId = inclusiveRange ? (inclusiveRange->from - 1) : MsgId();
+	const auto maxId = (inclusiveRange && inclusiveRange->till < kMaxOffset)
+		? (inclusiveRange->till + 1)
+		: MsgId();
 	const auto limit = kHistoryLimit;
 	const auto offsetId = [&] {
+		if (inclusiveRange && !messageId) {
+			return maxId;
+		}
 		switch (direction) {
 		case Data::LoadDirection::Before:
 		case Data::LoadDirection::Around: return messageId;
@@ -327,7 +336,7 @@ HistoryRequest PrepareHistoryRequest(
 	const auto mtpOffsetId = int(std::clamp(
 		offsetId.bare,
 		int64(0),
-		int64(0x3FFFFFFF)));
+		int64(inclusiveRange ? kMaxOffset : 0x3FFFFFFF)));
 	return MTPmessages_GetHistory(
 		peer->input(),
 		MTP_int(mtpOffsetId),

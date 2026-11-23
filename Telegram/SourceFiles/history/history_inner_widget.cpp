@@ -4268,7 +4268,10 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			this,
 			_controller,
 			leaderOrSelf ? leaderOrSelf->from().get() : nullptr,
-			true,
+			leaderOrSelf
+				? leaderOrSelf->history()->peer->id
+				: _history->peer->id,
+			(_selected.size() == 2) ? getSelectedItems() : MessageIdsList(),
 			crl::guard(this, [=](
 					HistoryView::SmartMessageSelection selection,
 					bool wholeChat) {
@@ -5687,7 +5690,7 @@ void HistoryInner::smartSelectMessages(
 				applySmartSelection(result, true);
 			});
 		_controller->show(Box(
-			HistoryView::SmartSelectWholeChatBox,
+			HistoryView::SmartSelectHistoryBox,
 			this,
 			_history,
 			std::move(selection),

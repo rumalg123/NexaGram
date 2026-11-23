@@ -2163,8 +2163,11 @@ bool ListWidget::canSelectMatchingMessages() const {
 	return _selectEnabled && !hasSelectRestriction();
 }
 
-bool ListWidget::canSelectWholeChat() const {
-	return canSelectMatchingMessages() && _delegate->listWholeChatHistory();
+PeerId ListWidget::smartSelectionHistoryPeer() const {
+	const auto history = _delegate->listWholeChatHistory();
+	return (canSelectMatchingMessages() && history)
+		? history->peer->id
+		: PeerId();
 }
 
 void ListWidget::selectMatchingMessages(
@@ -2181,7 +2184,7 @@ void ListWidget::selectMatchingMessages(
 					applySmartSelection(result, true);
 				});
 			controller()->show(Box(
-				SmartSelectWholeChatBox,
+				SmartSelectHistoryBox,
 				this,
 				history,
 				std::move(selection),

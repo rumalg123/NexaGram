@@ -411,7 +411,7 @@ public:
 	void cancelSelection();
 	[[nodiscard]] bool wasSelectedText() const;
 	[[nodiscard]] bool canSelectMatchingMessages() const;
-	[[nodiscard]] bool canSelectWholeChat() const;
+	[[nodiscard]] PeerId smartSelectionHistoryPeer() const;
 	void selectMatchingMessages(
 		SmartMessageSelection selection,
 		bool wholeChat);

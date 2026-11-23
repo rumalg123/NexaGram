@@ -1670,12 +1670,18 @@ void AddSmartSelectionAction(
 		|| (!request.item && request.selectedItems.empty())) {
 		return;
 	}
+	const auto wholeChatPeer = list->smartSelectionHistoryPeer();
 	AddSmartSelectActions(
 		menu,
 		list,
 		list->controller(),
 		request.item ? request.item->from().get() : nullptr,
-		list->canSelectWholeChat(),
+		(wholeChatPeer && request.item)
+			? request.item->history()->peer->id
+			: wholeChatPeer,
+		(request.selectedItems.size() == 2)
+			? ExtractIdsList(request.selectedItems)
+			: MessageIdsList(),
 		crl::guard(list, [=](SmartMessageSelection selection, bool wholeChat) {
 			list->selectMatchingMessages(std::move(selection), wholeChat);
 		}));

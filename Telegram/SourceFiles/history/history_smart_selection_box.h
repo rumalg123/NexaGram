@@ -33,10 +33,11 @@ void AddSmartSelectActions(
 	not_null<QWidget*> parent,
 	not_null<Window::SessionController*> controller,
 	const PeerData *sender,
-	bool wholeChatAvailable,
+	PeerId wholeChatPeer,
+	const MessageIdsList &selectedIds,
 	Fn<void(SmartMessageSelection, bool)> apply);
 
-void SmartSelectWholeChatBox(
+void SmartSelectHistoryBox(
 	not_null<Ui::GenericBox*> box,
 	not_null<Ui::RpWidget*> origin,
 	not_null<History*> history,

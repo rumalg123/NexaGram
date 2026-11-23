@@ -21,11 +21,65 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "styles/style_menu_icons.h"
 
+#include <limits>
+
 namespace HistoryView {
 namespace {
 
 constexpr auto kPageDelay = crl::time(250);
 constexpr auto kSecond = crl::time(1000);
+
+[[nodiscard]] std::optional<SmartSelectionRange> SelectedRange(
+		const MessageIdsList &ids) {
+	constexpr auto kMaxMessageId = std::numeric_limits<int32>::max();
+	if (ids.size() != 2 || !ids.front().peer
+		|| ids.front().peer != ids.back().peer) {
+		return std::nullopt;
+	}
+	const auto [from, till] = std::minmax(ids.front().msg, ids.back().msg);
+	if (from <= 0 || till > kMaxMessageId || from == till) {
+		return std::nullopt;
+	}
+	return SmartSelectionRange{ ids.front().peer, { from, till } };
+}
+
+void SmartSelectRangeBox(
+		not_null<Ui::GenericBox*> box,
+		PeerId peer,
+		Fn<void(SmartSelectionRange)> apply) {
+	box->setTitle(tr::lng_context_smart_select_message_range());
+	const auto addField = [&](rpl::producer<QString> placeholder) {
+		return box->addRow(object_ptr<Ui::InputField>(
+			box,
+			st::factcheckField,
+			Ui::InputField::Mode::NoNewlines,
+			std::move(placeholder)));
+	};
+	const auto start = addField(tr::lng_smart_select_range_start());
+	const auto end = addField(tr::lng_smart_select_range_end());
+	const auto submit = [=] {
+		auto startValid = false;
+		auto endValid = false;
+		const auto startId = start->getLastText().trimmed().toInt(&startValid);
+		const auto endId = end->getLastText().trimmed().toInt(&endValid);
+		if (!startValid || startId <= 0 || !endValid || endId <= 0) {
+			(!startValid || startId <= 0 ? start : end)->showError();
+			Ui::Toast::Show(tr::lng_smart_select_range_invalid(tr::now));
+			return;
+		}
+		const auto [from, till] = std::minmax(startId, endId);
+		const auto callback = apply;
+		box->closeBox();
+		callback({ peer, { from, till } });
+	};
+	start->submits() | rpl::on_next([=] {
+		end->setFocusFast();
+	}, start->lifetime());
+	end->submits() | rpl::on_next(submit, end->lifetime());
+	box->setFocusCallback([=] { start->setFocusFast(); });
+	box->addButton(tr::lng_box_ok(), submit);
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
 
 class WholeChatScan final {
 public:
@@ -82,15 +136,21 @@ WholeChatScan::WholeChatScan(
 , _apply(std::move(apply))
 , _timer([=] { resume(); }) {
 	if (const auto migrated = history->migrateFrom()) {
-		_migrated = migrated->peer.get();
+		if (!_selection.range()) {
+			_migrated = migrated->peer.get();
+		} else if (_selection.range()->peer == migrated->peer->id) {
+			_peer = migrated->peer.get();
+		}
 	}
 	showProgress();
 }
 
 void WholeChatScan::requestPage() {
+	const auto &range = _selection.range();
 	if (!_apply || _requestId) {
 		return;
-	} else if (_peer->session().frozen()) {
+	} else if (_peer->session().frozen()
+		|| (range && range->peer != _peer->id)) {
 		fail();
 		return;
 	}
@@ -98,7 +158,8 @@ void WholeChatScan::requestPage() {
 	_requestId = _api.request(Api::PrepareHistoryRequest(
 		_peer,
 		_offset,
-		Data::LoadDirection::Before
+		Data::LoadDirection::Before,
+		range ? std::optional(range->ids) : std::nullopt
 	)).done([=](const MTPmessages_Messages &result) {
 		pageReceived(result);
 	}).fail([=](const MTP::Error &error) {
@@ -140,6 +201,7 @@ void WholeChatScan::pageReceived(const MTPmessages_Messages &result) {
 		return;
 	}
 	auto &owner = _peer->owner();
+	const auto &range = _selection.range();
 	auto oldest = _offset;
 	_selection.resetRegexBudget();
 	for (const auto &message : *page.messages) {
@@ -151,7 +213,8 @@ void WholeChatScan::pageReceived(const MTPmessages_Messages &result) {
 		if (!oldest || id < oldest) {
 			oldest = id;
 		}
-		if (PeerFromMessage(message) != _peer->id) {
+		if (PeerFromMessage(message) != _peer->id
+			|| !_selection.includes({ _peer->id, id })) {
 			continue;
 		}
 		auto item = owner.message(_peer, id);
@@ -168,7 +231,7 @@ void WholeChatScan::pageReceived(const MTPmessages_Messages &result) {
 	}
 	if (oldest == _offset) {
 		fail();
-	} else if (oldest == 1) {
+	} else if (oldest == 1 || (range && oldest <= range->ids.from)) {
 		nextHistory();
 	} else {
 		_offset = oldest;
@@ -255,15 +318,18 @@ void AddSmartSelectActions(
 		not_null<QWidget*> parent,
 		not_null<Window::SessionController*> controller,
 		const PeerData *sender,
-		bool wholeChatAvailable,
+		PeerId wholeChatPeer,
+		const MessageIdsList &selectedIds,
 		Fn<void(SmartMessageSelection, bool)> apply) {
-	const auto addScope = [&](bool wholeChat) {
+	const auto addScope = [&](
+			const QString &scopeLabel,
+			Fn<void(SmartMessageSelection)> run) {
 		auto smart = std::make_unique<Ui::PopupMenu>(
 			parent.get(),
 			st::popupMenuWithIcons);
 		const auto add = [&](SmartMessageFilter filter, const QString &label) {
 			smart->addAction(label, [=] {
-				apply(SmartMessageSelection(filter, sender), wholeChat);
+				run(SmartMessageSelection(filter, sender));
 			}, &st::menuIconSelect);
 		};
 		add(SmartMessageFilter::Photos,
@@ -289,34 +355,55 @@ void AddSmartSelectActions(
 					controller->show(Box(
 						SmartSelectFilenameBox,
 						regex,
-						[=](SmartMessageSelection selection) {
-							apply(std::move(selection), wholeChat);
-						}));
+						run));
 				},
 				&st::menuIconSelect);
 		};
 		addFilename(false);
 		addFilename(true);
-		menu->addAction(
-			wholeChat
-				? tr::lng_context_smart_select_whole_chat(tr::now)
-				: tr::lng_context_smart_select(tr::now),
-			std::move(smart),
-			&st::menuIconSelect);
+		menu->addAction(scopeLabel, std::move(smart), &st::menuIconSelect);
 	};
-	addScope(false);
-	if (wholeChatAvailable) {
-		addScope(true);
+	addScope(tr::lng_context_smart_select(tr::now), [=](auto selection) {
+		apply(std::move(selection), false);
+	});
+	if (wholeChatPeer) {
+		addScope(
+			tr::lng_context_smart_select_whole_chat(tr::now),
+			[=](auto selection) { apply(std::move(selection), true); });
+		addScope(
+			tr::lng_context_smart_select_message_range(tr::now),
+			[=](SmartMessageSelection selection) {
+				controller->show(Box(
+					SmartSelectRangeBox,
+					wholeChatPeer,
+					[=, selection = std::move(selection)](
+							SmartSelectionRange range) mutable {
+						selection.limitTo(range);
+						apply(std::move(selection), true);
+					}));
+			});
+	}
+	if (const auto range = SelectedRange(selectedIds)) {
+		addScope(
+			wholeChatPeer
+				? tr::lng_context_smart_select_selected_range(tr::now)
+				: tr::lng_context_smart_select_loaded_range(tr::now),
+			[=](SmartMessageSelection selection) {
+				selection.limitTo(*range);
+				apply(std::move(selection), bool(wholeChatPeer));
+			});
 	}
 }
 
-void SmartSelectWholeChatBox(
+void SmartSelectHistoryBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Ui::RpWidget*> origin,
 		not_null<History*> history,
 		SmartMessageSelection selection,
 		Fn<void(SmartMessageSelection)> apply) {
-	box->setTitle(tr::lng_context_smart_select_whole_chat());
+	box->setTitle(selection.range()
+		? tr::lng_context_smart_select_message_range()
+		: tr::lng_context_smart_select_whole_chat());
 	const auto scanLifetime = box->lifetime().make_state<rpl::lifetime>();
 	const auto scan = scanLifetime->make_state<WholeChatScan>(
 		box,
