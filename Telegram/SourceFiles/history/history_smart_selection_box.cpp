@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "main/main_session.h"
 #include "mtproto/sender.h"
+#include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/popup_menu.h"
 #include "window/window_session_controller.h"
@@ -49,6 +50,7 @@ private:
 
 	const not_null<Ui::GenericBox*> _box;
 	const not_null<Ui::FlatLabel*> _progress;
+	const QPointer<Ui::RoundButton> _selectMatches;
 	PeerData *_peer = nullptr;
 	PeerData *_migrated = nullptr;
 	MTP::Sender _api;
@@ -69,6 +71,11 @@ WholeChatScan::WholeChatScan(
 	Fn<void(SmartMessageSelection)> apply)
 : _box(box)
 , _progress(box->addRow(object_ptr<Ui::FlatLabel>(box, st::boxLabel)))
+, _selectMatches(box->addButton(tr::lng_smart_select_keep_matches(), [=] {
+	if (_apply && !_selection.items().empty()) {
+		finish();
+	}
+}))
 , _peer(history->peer.get())
 , _api(&history->session().mtp())
 , _selection(std::move(selection))
@@ -108,7 +115,18 @@ void WholeChatScan::cancel() {
 }
 
 void WholeChatScan::remove(FullMsgId id) {
+	if (!_apply) {
+		return;
+	}
+	const auto previous = _selection.items().size();
 	_selection.remove(id);
+	if (_selection.items().size() != previous) {
+		if (_resumeAt <= crl::now()) {
+			showProgress();
+		} else {
+			_selectMatches->setDisabled(_selection.items().empty());
+		}
+	}
 }
 
 void WholeChatScan::pageReceived(const MTPmessages_Messages &result) {
@@ -206,6 +224,7 @@ void WholeChatScan::nextHistory() {
 void WholeChatScan::finish() {
 	const auto apply = base::take(_apply);
 	auto selection = std::move(_selection);
+	cancel();
 	_box->closeBox();
 	if (apply) {
 		apply(std::move(selection));
@@ -218,6 +237,7 @@ void WholeChatScan::fail() {
 }
 
 void WholeChatScan::showProgress() {
+	_selectMatches->setDisabled(_selection.items().empty());
 	_progress->setText(tr::lng_smart_select_chat_progress(
 		tr::now,
 		lt_checked,
@@ -297,13 +317,13 @@ void SmartSelectWholeChatBox(
 		SmartMessageSelection selection,
 		Fn<void(SmartMessageSelection)> apply) {
 	box->setTitle(tr::lng_context_smart_select_whole_chat());
-	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 	const auto scanLifetime = box->lifetime().make_state<rpl::lifetime>();
 	const auto scan = scanLifetime->make_state<WholeChatScan>(
 		box,
 		history,
 		std::move(selection),
 		std::move(apply));
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 	history->owner().itemRemoved() | rpl::on_next(
 		[=](not_null<const HistoryItem*> item) {
 			scan->remove(item->fullId());

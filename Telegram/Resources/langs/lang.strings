@@ -5451,6 +5451,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_smart_select_no_chat_matches" = "No selectable messages match in this chat.";
 "lng_smart_select_limit" = "More messages matched. Selected the latest {limit}.";
 "lng_smart_select_chat_progress" = "Checked {checked} messages. Found {found} of {limit} matches.";
+"lng_smart_select_keep_matches" = "Select Matches";
 "lng_smart_select_chat_wait" = "Telegram asked to wait {duration}. The search will resume automatically.";
 "lng_smart_select_chat_failed" = "Couldn't finish searching chat history. Try again.";
 "lng_context_send_now_selected" = "Send selected now";
