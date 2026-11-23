@@ -74,6 +74,29 @@ set(TDESKTOP_CANARY_COMMIT "" CACHE STRING "Short commit hash shown in the canar
 set(TDESKTOP_CANARY_PUBLIC_CHANNEL "" CACHE STRING "Public canary channel username (canary-public builds).")
 set(TDESKTOP_CANARY_PRIVATE_CHANNEL_ID "0" CACHE STRING "Private canary channel numeric id (canary-private builds).")
 set(TDESKTOP_CANARY_METADATA_MSG_ID "0" CACHE STRING "Fixed metadata message id in the canary channel.")
+set(TDESKTOP_FORK_UPDATE_URL "" CACHE STRING "HTTPS prefix for the fork's signed update feed.")
+set(TDESKTOP_FORK_UPDATE_TRUST_DIR "" CACHE PATH "Directory containing the fork's public update trust files.")
+
+if (NOT TDESKTOP_FORK_UPDATE_URL STREQUAL "" OR NOT TDESKTOP_FORK_UPDATE_TRUST_DIR STREQUAL "")
+    if (DESKTOP_APP_DISABLE_AUTOUPDATE)
+        message(FATAL_ERROR "Fork update builds require DESKTOP_APP_DISABLE_AUTOUPDATE=OFF.")
+    endif()
+    if (NOT TDESKTOP_UPDATE_CHANNEL MATCHES "^(stable|beta)$")
+        message(FATAL_ERROR "TDESKTOP_FORK_UPDATE_URL is for stable and beta builds.")
+    endif()
+    if (NOT TDESKTOP_FORK_UPDATE_URL MATCHES "^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~%+/-]*)?$"
+        OR TDESKTOP_FORK_UPDATE_TRUST_DIR STREQUAL "")
+        message(FATAL_ERROR "Set both a fork HTTPS update prefix and its public trust directory.")
+    endif()
+    file(REAL_PATH "${TDESKTOP_FORK_UPDATE_TRUST_DIR}" tdesktop_fork_update_keys)
+    foreach(trust_file root-public.pem manifest.min.json manifest.sig)
+        set(trust_path "${tdesktop_fork_update_keys}/${trust_file}")
+        if (NOT EXISTS "${trust_path}" OR IS_DIRECTORY "${trust_path}")
+            message(FATAL_ERROR "Missing fork update trust file: ${trust_path}")
+        endif()
+    endforeach()
+    target_compile_definitions(Telegram PRIVATE "TDESKTOP_FORK_UPDATE_PREFIX=\"${TDESKTOP_FORK_UPDATE_URL}\"")
+endif()
 
 # CI passes these straight from repository variables, an unset variable
 # arrives as an empty string and must mean "not configured", not an

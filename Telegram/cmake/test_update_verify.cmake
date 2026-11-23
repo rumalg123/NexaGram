@@ -23,8 +23,12 @@ PRIVATE
     tests/test_update_verify.cpp
 )
 
-target_include_directories(test_update_verify PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen)
-add_dependencies(test_update_verify Telegram_update_keys)
+if (tdesktop_fork_update_keys)
+    generate_update_keys(test_update_verify "${res_loc}/update")
+else()
+    target_include_directories(test_update_verify PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen)
+    add_dependencies(test_update_verify Telegram_update_keys)
+endif()
 
 target_link_libraries(test_update_verify
 PRIVATE

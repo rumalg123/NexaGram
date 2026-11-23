@@ -1,4 +1,31 @@
-# V1-style zstd update packages
+# Signed fork updates
+
+The fork starts at version `1.2.14`. To bump the release, run
+`python Telegram/build/set_version.py 1.2.15 7.4.4` from the repository
+root. The second argument records the Telegram Desktop base version.
+
+Configure a desktop build with `DESKTOP_APP_DISABLE_AUTOUPDATE=OFF`,
+`TDESKTOP_FORK_UPDATE_URL` set to the fork's HTTPS feed prefix, and
+`TDESKTOP_FORK_UPDATE_TRUST_DIR` set to the directory containing
+`root-public.pem`, `manifest.min.json`, and `manifest.sig`. The directory
+contains the public update root and its signed manifest. Keep the root and
+release private keys in the signing environment.
+
+The feed serves its platform map at `<prefix>/check`. For Windows x64,
+an entry for the first release after `1.2.14` looks like this:
+
+```json
+{"win64":{"stable":{"released":1002015,"link":"/td-update-win-x64-1002015"}}}
+```
+
+Place the signed v2 package at the corresponding path beneath the prefix.
+The `Packer` target uses `-channel stable` and `-keys-loc` for that
+release. Its `-emit-signing-input` and `-embed-signatures` options support
+signing outside the packaging process. Publish package assets before
+updating the map. Install the first fork build manually to put the new
+feed and public root in place.
+
+## V1-style zstd update packages
 
 `Packer_zstd` packages stable and beta updates on Windows, macOS and other
 Unix platforms using the v1 layout with zstd instead of LZMA. The original

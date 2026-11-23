@@ -6,6 +6,9 @@
 
 function(generate_update_keys target_name update_loc)
     set(gen_dst ${CMAKE_CURRENT_BINARY_DIR}/gen)
+    if (ARGC GREATER 2)
+        string(APPEND gen_dst "/${ARGV2}")
+    endif()
     file(MAKE_DIRECTORY ${gen_dst})
 
     set(gen_files ${gen_dst}/update_keys_data.h)
@@ -27,6 +30,7 @@ function(generate_update_keys target_name update_loc)
         ${update_loc}/root-public.pem
         ${update_loc}/manifest.min.json
         ${update_loc}/manifest.sig
+    VERBATIM
     )
     generate_target(${target_name} update_keys ${gen_files} "${gen_files}" ${gen_dst})
 endfunction()

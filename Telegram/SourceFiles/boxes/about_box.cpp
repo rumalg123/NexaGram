@@ -72,7 +72,7 @@ void AboutBox(not_null<Ui::GenericBox*> box) {
 	const auto version = layout->add(
 		object_ptr<Ui::LinkButton>(
 			box,
-			tr::lng_about_version(
+			tr::lng_about_fork_version(
 				tr::now,
 				lt_version,
 				currentVersionText()),
@@ -114,6 +114,17 @@ void AboutBox(not_null<Ui::GenericBox*> box) {
 		}
 	});
 
+	layout->add(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			tr::lng_about_upstream_versions(
+				tr::now,
+				lt_base,
+				QString::fromLatin1(Base64GramVersion),
+				lt_upstream,
+				QString::fromLatin1(UpstreamVersion)),
+			st::aboutLabel),
+		st::boxRowPadding);
 	Ui::AddSkip(layout, st::aboutTopSkip);
 
 	const auto addText = [&](rpl::producer<TextWithEntities> text) {
@@ -166,7 +177,6 @@ namespace {
 	} else if (Platform::IsWindowsARM64()) {
 		result += " arm64";
 	}
-	result += QString("｜v%1").arg(UpstreamVersion);
 #ifdef _DEBUG
 	result += " DEBUG";
 #endif

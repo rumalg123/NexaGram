@@ -384,6 +384,10 @@ using VerifiedPackage = std::variant<
 		bool beta,
 		QString &error) {
 	if (Core::Updates::Zstd::IsUpdateFile(bytes)) {
+		if (Core::ForkUpdates) {
+			error = u"Fork updates require a signed v2 package."_q;
+			return std::nullopt;
+		}
 		return Core::Updates::Zstd::VerifyUpdate(
 			bytes,
 			AppVersion,

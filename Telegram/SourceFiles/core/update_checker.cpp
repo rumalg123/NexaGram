@@ -76,6 +76,18 @@ constexpr auto kFrequentUpdateDelayRandPart = 300;
 // 64-bit (base << 32 | counter) version. 0x7FFFFFFF is the alpha marker.
 constexpr auto kVersionFileCanaryMarker = quint32(0x7FFFFFFE);
 
+[[nodiscard]] QString SignedUpdatePlatformKey() {
+	const auto key = Platform::AutoUpdateKey();
+#ifdef Q_OS_WIN
+	if (key == u"win"_q) {
+		return u"win64"_q;
+	} else if (key == u"win32"_q) {
+		return u"win"_q;
+	}
+#endif // Q_OS_WIN
+	return key;
+}
+
 #if !defined Q_OS_WIN && !defined Q_OS_MAC
 constexpr auto kFlatpakPortalService = "org.freedesktop.portal.Flatpak";
 constexpr auto kFlatpakPortalObjectPath = "/org/freedesktop/portal/Flatpak";
@@ -501,12 +513,16 @@ enum class ManifestAdoption {
 		const QByteArray &content,
 		ManifestAdoption adoption) {
 	if (Updates::Zstd::IsUpdateFile(content)) {
+		if (ForkUpdates) {
+			LOG(("Update Error: Fork updates require a signed v2 package."));
+			return false;
+		}
 		return UnpackUpdateZstd(filepath, content);
 	}
 	// The expected target follows the feed key, not the build: an x64
 	// build under Rosetta asks for armac and must accept that package.
 	const auto target = Updates::TargetFromPlatformKey(
-		Platform::AutoUpdateKey().toLatin1());
+		SignedUpdatePlatformKey().toLatin1());
 	if (!target) {
 		LOG(("Update Error: No v2 target for platform key '%1'."
 			).arg(Platform::AutoUpdateKey()));
@@ -662,7 +678,9 @@ bool ParseCommonMap(
 		return false;
 	}
 	const auto platforms = document.object();
-	const auto platform = Platform::AutoUpdateKey();
+	const auto platform = ForkUpdates
+		? SignedUpdatePlatformKey()
+		: Platform::AutoUpdateKey();
 	const auto it = platforms.constFind(platform);
 	if (it == platforms.constEnd()) {
 		LOG(("Update Error: MTP platform '%1' not found in response."
@@ -829,9 +847,12 @@ bool HttpChecker::handleResponse(const QByteArray &response) {
 		done(url.isEmpty() ? nullptr : std::make_shared<HttpLoader>(url));
 		return true;
 	};
-	if (const auto url = parseOldResponse(response)) {
-		return handle(*url);
-	} else if (const auto url = parseResponse(response)) {
+	if (!ForkUpdates) {
+		if (const auto url = parseOldResponse(response)) {
+			return handle(*url);
+		}
+	}
+	if (const auto url = parseResponse(response)) {
 		return handle(*url);
 	}
 	return false;
@@ -908,6 +929,10 @@ std::optional<QString> HttpChecker::parseResponse(
 	};
 	const auto result = ParseCommonMap(response, testing(), accumulate);
 	if (!result) {
+		return std::nullopt;
+	}
+	if (ForkUpdates
+		&& (!bestLink.startsWith(u'/') || bestLink.startsWith(u"//"_q))) {
 		return std::nullopt;
 	}
 	return validateLatestUrl(
@@ -1333,7 +1358,7 @@ void MtpChecker::parseCanaryMetadata(
 	}
 
 	const auto channels = object.value(u"channels"_q).toObject();
-	const auto platform = Platform::AutoUpdateKey();
+	const auto platform = SignedUpdatePlatformKey();
 	auto bestVersion = quint64(0);
 	auto bestPostId = 0;
 	const auto readU32 = [](const QJsonValue &value, quint32 *result) {
@@ -1799,19 +1824,18 @@ void Updater::start(bool forceWait) {
 #endif // !Q_OS_WIN && !Q_OS_MAC
 	} else if (sendRequest) {
 		if (BuildIsCanary) {
-			// Canary builds discover updates only through their own MTP
-			// channels, the v1 HTTP feed serves other channels.
-			startImplementation(&_httpImplementation, nullptr);
+			_httpImplementation.failed = true;
+			startImplementation(
+				&_mtpImplementation,
+				std::make_unique<MtpChecker>(
+					LookupCanaryPrivateSession(_session),
+					_testing));
 		} else {
+			_mtpImplementation.failed = true;
 			startImplementation(
 				&_httpImplementation,
 				std::make_unique<HttpChecker>(_testing));
 		}
-		//startImplementation(
-		//	&_mtpImplementation,
-		//	std::make_unique<MtpChecker>(
-		//		LookupCanaryPrivateSession(_session),
-		//		_testing));
 
 		_checking.fire({});
 	} else {
@@ -1822,20 +1846,6 @@ void Updater::start(bool forceWait) {
 void Updater::startImplementation(
 		not_null<Implementation*> which,
 		std::unique_ptr<Checker> checker) {
-	if (!checker) {
-		class EmptyChecker : public Checker {
-		public:
-			EmptyChecker() : Checker(false) {
-			}
-
-			void start() override {
-				crl::on_main(this, [=] { fail(); });
-			}
-
-		};
-		checker = std::make_unique<EmptyChecker>();
-	}
-
 	checker->ready(
 	) | rpl::on_next([=](std::shared_ptr<Loader> &&loader) {
 		checkerDone(which, std::move(loader));

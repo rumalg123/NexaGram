@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_info.h"
 #include "base/random.h"
 #include "ui/power_saving.h"
+#include "core/update_channel.h"
 #include "core/update_checker.h"
 #include "core/file_location.h"
 #include "core/application.h"
@@ -550,6 +551,9 @@ QString autoupdatePrefixFile() {
 QString readAutoupdatePrefixRaw() {
 	Expects(!Core::UpdaterDisabled());
 
+	if constexpr (Core::ForkUpdates) {
+		return QString::fromLatin1(Core::ForkUpdatePrefix);
+	}
 	//const auto &result = AutoupdatePrefix();
 	//if (!result.isEmpty()) {
 	//	return result;
@@ -571,7 +575,7 @@ QString readAutoupdatePrefixRaw() {
 }
 
 void writeAutoupdatePrefix(const QString &prefix) {
-	if (Core::UpdaterDisabled()) {
+	if (Core::ForkUpdates || Core::UpdaterDisabled()) {
 		return;
 	}
 

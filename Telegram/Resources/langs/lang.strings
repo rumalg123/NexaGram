@@ -5956,6 +5956,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_upload_show_file" = "Show file";
 
 "lng_about_version" = "version {version}";
+"lng_about_fork_version" = "Fork version {version}";
+"lng_about_upstream_versions" = "Based on 64Gram {base} and Telegram Desktop {upstream}.";
 "lng_about_text1" = "Official free messaging app based on {api_link}\nfor speed and security.";
 "lng_about_text1_api" = "Telegram API";
 "lng_about_text4" = "Unofficial free messaging app based on {api_link}\nfor speed and security.";

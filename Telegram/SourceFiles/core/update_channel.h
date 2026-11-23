@@ -34,6 +34,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Core {
 
+#ifdef TDESKTOP_FORK_UPDATE_PREFIX
+inline constexpr auto ForkUpdatePrefix = TDESKTOP_FORK_UPDATE_PREFIX;
+#else // TDESKTOP_FORK_UPDATE_PREFIX
+inline constexpr auto ForkUpdatePrefix = "";
+#endif // TDESKTOP_FORK_UPDATE_PREFIX
+inline constexpr auto ForkUpdates = ForkUpdatePrefix[0] != '\0';
+
 inline constexpr auto BuildUpdateChannel = Updates::Channel(
 	TDESKTOP_UPDATE_CHANNEL);
 inline constexpr auto CanaryBuildCounter = quint32(TDESKTOP_CANARY_COUNTER);
