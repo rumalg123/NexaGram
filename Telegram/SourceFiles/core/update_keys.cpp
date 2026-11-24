@@ -7,7 +7,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/update_keys.h"
 
+#ifdef TDESKTOP_FORK_UPDATE_PREFIX
+#include "fork_update_keys_data.h"
+#else // TDESKTOP_FORK_UPDATE_PREFIX
 #include "update_keys_data.h"
+#endif // TDESKTOP_FORK_UPDATE_PREFIX
 
 namespace Core::Updates {
 
