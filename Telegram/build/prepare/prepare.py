@@ -1627,6 +1627,18 @@ qtAngleCmake = os.path.realpath(os.path.join(
     scriptPath, '../../../cmake/external/angle/qt.cmake')).replace('\\', '/')
 # checkouts share Libraries, so the cache key gets the content, not the path
 modifiedEnv['QT_ANGLE_CMAKE'] = qtAngleCmake
+if win:
+    msysToolchains = {'ucrt64', 'mingw32', 'mingw64', 'clang32', 'clang64', 'clangarm64'}
+    msysPrefixes = set()
+    for entry in modifiedEnv['PATH'].split(os.pathsep):
+        path = pathlib.PureWindowsPath(entry.strip('"'))
+        if path.name.lower() == 'bin' and path.parent.name.lower() in msysToolchains:
+            msysPrefixes.add(path.parent.as_posix())
+    modifiedEnv['QT_MSYS2_PREFIXES'] = ';'.join(sorted(msysPrefixes))
+    modifiedEnv['QT_MSYS2_PACKAGE_DIRS'] = ';'.join(
+        f'{prefix}/{folder}'
+        for prefix in sorted(msysPrefixes)
+        for folder in ('include', 'lib'))
 localQtPatchesPath = os.path.join(scriptPath, 'patches', 'qtbase_' + qt)
 localQtPatches = sorted(glob.glob(os.path.join(localQtPatchesPath, '*.patch'))) if win else []
 modifiedEnv['QT_LOCAL_PATCHES'] = localQtPatchesPath
@@ -1761,6 +1773,8 @@ win32_win64:
         -D CMAKE_PROJECT_QtBase_INCLUDE:FILEPATH="%QT_ANGLE_CMAKE%" ^
         -D DESKTOP_APP_ANGLE_DIR:PATH="%LIBS_DIR%\\tg_angle" ^
 win:
+        -D CMAKE_IGNORE_PREFIX_PATH:STRING="%QT_MSYS2_PREFIXES%" ^
+        -D CMAKE_IGNORE_PATH:STRING="%QT_MSYS2_PACKAGE_DIRS%" ^
         -D JPEG_FOUND=1 ^
         -D JPEG_INCLUDE_DIR="%MOZJPEG_DIR%" ^
         -D JPEG_LIBRARY_DEBUG="%MOZJPEG_DIR%\\Debug\\jpeg-static.lib" ^

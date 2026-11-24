@@ -51,8 +51,10 @@ Run both `Clone source code and prepare libraries` and `Build the project` secti
 
 In the initialized terminal, go to ***BuildPath*** and run
 
-    git clone --recursive https://github.com/TDesktop-x64/tdesktop.git
+    git clone --recurse-submodules https://github.com/rumalg123/tdesktop.git
     tdesktop\Telegram\build\prepare\win.bat
+
+Add `--branch BRANCH_NAME` to the clone command when building a specific branch. The preparation script builds Qt at the version pinned in `Telegram/build/qt_version.py`.
 
 ## Build the project
 
@@ -72,7 +74,7 @@ For `winarm` (ARM64):
 
 * Open ***BuildPath*\\tdesktop\\out\\Telegram.slnx** in Visual Studio 2026
 * Select Telegram project and press Build > Build Telegram (Debug and Release configurations)
-* The result Telegram.exe will be located in **D:\TBuild\tdesktop\out\Debug** (and **Release**)
+* `64Gram.exe` will be located in **D:\TBuild\tdesktop\out\Debug** (and **Release**)
 
 ### Qt Visual Studio Tools
 
