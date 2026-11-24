@@ -2097,6 +2097,9 @@ QByteArray SerializeMessage(
 		} else {
 			push("comment", data.comment);
 		}
+		if (!message.out) {
+			push("onramp_provider_name", data.onrampProviderName);
+		}
 	}, [&](const ActionWalletTonConnectRequest &data) {
 		pushActor();
 		pushAction("ton_connect_request");
@@ -2109,6 +2112,10 @@ QByteArray SerializeMessage(
 	}, [&](const ActionNoPaidMessagesTokenUsed &data) {
 		pushActor();
 		pushAction("no_paid_messages_token_used");
+	}, [&](const ActionBotInvite &data) {
+		pushActor();
+		pushAction("bot_invite");
+		pushBare("inviter", wrapUserName(data.inviterId));
 	}, [](v::null_t) {});
 
 	if (v::is_null(message.action.content)) {

@@ -202,7 +202,10 @@ void SetupCopyDeepLink(
 		not_null<Ui::VerticalLayout*> container,
 		const QString &name,
 		const QString &description,
-		const style::SettingsButton &st) {
+		bool relevant) {
+	const auto &st = relevant
+		? st::settingsButtonNoIcon
+		: st::settingsOptionDisabled;
 	if (description.isEmpty()) {
 		return container->add(object_ptr<Button>(
 			container,
@@ -219,7 +222,9 @@ void SetupCopyDeepLink(
 		object_ptr<Ui::FlatLabel>(
 			container,
 			name,
-			st::settingsExperimentalTitle),
+			(relevant
+				? st::settingsExperimentalTitle
+				: st::settingsExperimentalTitleDisabled)),
 		titlePadding);
 	const auto about = container->add(
 		object_ptr<Ui::FlatLabel>(
@@ -283,9 +288,7 @@ QString AddOption(
 		inner,
 		name,
 		description,
-		(option.relevant()
-			? st::settingsButtonNoIcon
-			: st::settingsOptionDisabled)
+		option.relevant()
 	)->toggleOn(toggles->events_starting_with(option.value()));
 
 	if (registerHighlight) {

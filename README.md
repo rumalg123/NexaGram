@@ -1,4 +1,4 @@
-﻿# 64Gram – Based on [Telegram Desktop](https://github.com/telegramdesktop/tdesktop)
+# 64Gram – Based on [Telegram Desktop](https://github.com/telegramdesktop/tdesktop)
 
 The source code is published under GPLv3 with OpenSSL exception, the license is available [here][license].
 
@@ -42,9 +42,11 @@ Then your language translation filename is `de.json` or something like that.
 
 ***Note: Ignore base ID(base ID translation - Work in progress)***
 
+The embedded Telegram Widget engine uses [Nova](https://github.com/trynova/nova), licensed under the [Mozilla Public License 2.0](https://github.com/trynova/nova/blob/main/LICENSE.md).
+
 ## Build instructions
 
-* [Windows (32-bit and 64-bit)][win]
+* [Windows][win]
 * [macOS][mac]
 * [GNU/Linux using Docker][linux]
 

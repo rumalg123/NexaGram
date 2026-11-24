@@ -127,7 +127,7 @@ bool PeerMatchesChatStatus(PeerData *peer, ChatStatusFilter filter) {
 	return false;
 }
 
-[[nodiscard]] bool SearchState::empty() const {
+bool SearchState::empty() const {
 	return !inChat
 		&& tags.empty()
 		&& QStringView(query).trimmed().isEmpty();

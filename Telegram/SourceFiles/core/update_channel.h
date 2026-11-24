@@ -72,6 +72,17 @@ inline constexpr auto CanaryPrivateChannelId
 inline constexpr auto CanaryMetadataMessageId
 	= int(TDESKTOP_CANARY_METADATA_MSG_ID);
 
+[[nodiscard]] inline QString SignedUpdatePlatformKey(const QString &key) {
+#ifdef Q_OS_WIN
+	if (key == QStringLiteral("win")) {
+		return QStringLiteral("win64");
+	} else if (key == QStringLiteral("win32")) {
+		return QStringLiteral("win");
+	}
+#endif // Q_OS_WIN
+	return key;
+}
+
 [[nodiscard]] inline constexpr quint64 RunningUpdateVersion() {
 	return Updates::MakeUpdateVersion(
 		quint32(AppVersion),
