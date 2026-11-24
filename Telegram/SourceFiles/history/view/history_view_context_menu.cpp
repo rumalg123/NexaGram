@@ -451,6 +451,9 @@ void AddDocumentActions(
 		HistoryItem *item,
 		not_null<ListWidget*> list) {
 	if (document->loading()) {
+		AddDownloadPauseResumeAction(
+			Ui::Menu::CreateAddActionCallback(menu),
+			document);
 		menu->addAction(tr::lng_context_cancel_download(tr::now), [=] {
 			document->cancel();
 		}, &st::menuIconCancel);

@@ -1576,6 +1576,11 @@ void ListWidget::showContextMenu(
 			&st::menuIconCancel);
 	} else if (document) {
 		if (document->loading()) {
+			if (_controller->isDownloads()) {
+				HistoryView::AddDownloadPauseResumeAction(
+					Ui::Menu::CreateAddActionCallback(_contextMenu),
+					document);
+			}
 			_contextMenu->addAction(
 				tr::lng_context_cancel_download(tr::now),
 				[document] {

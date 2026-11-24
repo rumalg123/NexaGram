@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_location.h"
 
 class HistoryItem;
+class mtpFileLoader;
 class PhotoData;
 enum class ChatRestriction;
 class mtpFileLoader;
@@ -143,11 +144,23 @@ public:
 	void setForbidsFileSave();
 	[[nodiscard]] bool forbidsFileSave() const;
 
+	enum class SaveIntent {
+		Default,
+		Explicit,
+		ExplicitWithOverwrite,
+	};
 	void save(
 		Data::FileOrigin origin,
 		const QString &toFile,
 		LoadFromCloudSetting fromCloud = LoadFromCloudOrLocal,
-		bool autoLoading = false);
+		bool autoLoading = false,
+		SaveIntent intent = SaveIntent::Default);
+	[[nodiscard]] bool hasPersistentDownload() const;
+	[[nodiscard]] bool persistentDownloadPaused() const;
+	[[nodiscard]] bool canPauseDownload() const;
+	[[nodiscard]] bool canResumeDownload() const;
+	void pauseDownload();
+	void resumeDownload();
 	void cancel();
 	[[nodiscard]] bool cancelled() const;
 	void resetCancelled();
@@ -392,6 +405,8 @@ private:
 	bool enforceNameType(Core::NameType nameType);
 
 	void finishLoad();
+	[[nodiscard]] mtpFileLoader *nativeFileLoader() const;
+	[[nodiscard]] bool persistentSourceAllowed(Data::FileOrigin origin) const;
 	void handleLoaderUpdates();
 	void destroyLoader();
 

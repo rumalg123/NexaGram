@@ -26,6 +26,10 @@ namespace HistoryView {
 
 class ListWidget;
 
+void AddDownloadPauseResumeAction(
+	const Ui::Menu::MenuCallback &addAction,
+	not_null<DocumentData*> document);
+
 void AddSaveDocumentAction(
 	const Ui::Menu::MenuCallback &addAction,
 	not_null<HistoryItem*> item,

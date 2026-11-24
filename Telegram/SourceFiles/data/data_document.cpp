@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_streaming.h"
 #include "data/data_document_media.h"
+#include "data/data_media_types.h"
 #include "data/data_reply_preview.h"
 #include "data/data_web_page.h"
 #include "lang/lang_keys.h"
@@ -1229,7 +1230,8 @@ void DocumentData::save(
 		Data::FileOrigin origin,
 		const QString &toFile,
 		LoadFromCloudSetting fromCloud,
-		bool autoLoading) {
+		bool autoLoading,
+		SaveIntent intent) {
 	Test::NotifyDocumentSave(this, toFile, autoLoading);
 	if (const auto media = activeMediaView(); media && media->loaded(true)) {
 		const auto &l = location(true);
@@ -1316,7 +1318,7 @@ void DocumentData::save(
 				autoLoading,
 				cacheTag());
 		} else {
-			_loader = std::make_unique<mtpFileLoader>(
+			auto loader = std::make_unique<mtpFileLoader>(
 				&session(),
 				StorageFileLocation(
 					_dc,
@@ -1335,6 +1337,18 @@ void DocumentData::save(
 				fromCloud,
 				autoLoading,
 				cacheTag());
+			if (intent != SaveIntent::Default
+				&& qEnvironmentVariableIntValue(
+					"TDESKTOP_EXPERIMENTAL_RESUMABLE_DOWNLOADS") == 1
+				&& !autoLoading
+				&& fromCloud == LoadFromCloudOrLocal
+				&& !saveToCache()
+				&& QFileInfo(toFile).isAbsolute()
+				&& Core::App().settings().downloadPath() != FileDialog::Tmp()
+				&& persistentSourceAllowed(origin)) {
+				loader->enablePersistent(intent == SaveIntent::ExplicitWithOverwrite);
+			}
+			_loader = std::move(loader);
 		}
 		handleLoaderUpdates();
 	}
@@ -1390,8 +1404,64 @@ void DocumentData::handleLoaderUpdates() {
 
 }
 
+mtpFileLoader *DocumentData::nativeFileLoader() const {
+	return dynamic_cast<mtpFileLoader*>(_loader.get());
+}
+
+bool DocumentData::persistentSourceAllowed(Data::FileOrigin origin) const {
+	const auto id = std::get_if<FullMsgId>(&origin.data);
+	const auto item = id ? _owner->message(*id) : nullptr;
+	const auto media = item ? item->media() : nullptr;
+	return hasRemoteLocation()
+		&& size > 0
+		&& size <= 4000 * int64(1024 * 1024)
+		&& !forbidsFileSave()
+		&& media
+		&& media->document() == this
+		&& IsServerMsgId(item->id)
+		&& !item->isScheduled()
+		&& !item->isEphemeral()
+		&& !item->forbidsForward()
+		&& item->history()->peer->allowsForwarding()
+		&& !media->ttlSeconds();
+}
+
+bool DocumentData::hasPersistentDownload() const {
+	const auto loader = nativeFileLoader();
+	return loader && loader->isPersistent();
+}
+
+bool DocumentData::persistentDownloadPaused() const {
+	const auto loader = nativeFileLoader();
+	return loader && loader->persistentCanResume();
+}
+
+bool DocumentData::canPauseDownload() const {
+	const auto loader = nativeFileLoader();
+	return loader && loader->persistentCanSuspend();
+}
+
+bool DocumentData::canResumeDownload() const {
+	const auto loader = nativeFileLoader();
+	return loader && loader->persistentCanResume()
+		&& size == loader->fullSize()
+		&& persistentSourceAllowed(loader->fileOrigin());
+}
+
+void DocumentData::pauseDownload() {
+	if (canPauseDownload()) {
+		nativeFileLoader()->suspendPersistent();
+	}
+}
+
+void DocumentData::resumeDownload() {
+	if (canResumeDownload()) {
+		nativeFileLoader()->resumePersistent();
+	}
+}
+
 void DocumentData::cancel() {
-	if (!loading()) {
+	if (!loading() || !_loader->canCancel()) {
 		return;
 	}
 

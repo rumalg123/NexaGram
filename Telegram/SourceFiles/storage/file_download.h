@@ -111,6 +111,7 @@ public:
 
 	void start();
 	void cancel();
+	[[nodiscard]] virtual bool canCancel() const { return true; }
 
 	[[nodiscard]] bool loadingLocal() const {
 		return (_localStatus == LocalStatus::Loading);
@@ -142,7 +143,7 @@ protected:
 
 	void readImage() const;
 
-	bool checkForOpen();
+	virtual bool checkForOpen();
 	bool tryLoadLocal();
 	void loadLocal(const Storage::Cache::Key &key);
 	virtual Storage::Cache::Key cacheKey() const = 0;

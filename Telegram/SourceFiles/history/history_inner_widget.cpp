@@ -3195,6 +3195,9 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	auto rateTranscriptionItem = (HistoryItem*)(nullptr);
 	const auto addDocumentActions = [&](not_null<DocumentData*> document, HistoryItem *item) {
 		if (document->loading()) {
+			HistoryView::AddDownloadPauseResumeAction(
+				Ui::Menu::CreateAddActionCallback(_menu),
+				document);
 			_menu->addAction(tr::lng_context_cancel_download(tr::now), [=] {
 				cancelContextDownload(document);
 			}, &st::menuIconCancel);

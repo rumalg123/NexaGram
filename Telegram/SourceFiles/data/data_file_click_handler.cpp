@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/click_handler_types.h"
 #include "core/file_utilities.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "data/data_document.h"
 #include "data/data_document_resolver.h"
 #include "data/data_session.h"
@@ -113,7 +114,16 @@ void DocumentSaveClickHandler::Save(
 			filename,
 			filedir);
 		if (!savename.isEmpty()) {
-			data->save(origin, savename);
+			const auto replace = (mode == Mode::ToNewFile)
+				|| Core::App().settings().askDownloadPath();
+			data->save(
+				origin,
+				savename,
+				LoadFromCloudOrLocal,
+				false,
+				replace
+					? DocumentData::SaveIntent::ExplicitWithOverwrite
+					: DocumentData::SaveIntent::Explicit);
 			if (started) {
 				started();
 			}

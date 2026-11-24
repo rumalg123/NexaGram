@@ -458,6 +458,9 @@ void DownloadMtprotoTask::refreshFileReferenceFrom(
 		const Data::UpdatedFileReferences &updates,
 		int requestId,
 		const QByteArray &current) {
+	if (!_sentRequests.contains(requestId)) {
+		return;
+	}
 	if (const auto v = std::get_if<StorageFileLocation>(&_location.data)) {
 		v->refreshFileReference(updates);
 		if (v->fileReference() == current) {
@@ -468,11 +471,7 @@ void DownloadMtprotoTask::refreshFileReferenceFrom(
 		cancelOnFail();
 		return;
 	}
-	if (_sentRequests.contains(requestId)) {
-		makeRequest(finishSentRequest(
-			requestId,
-			FinishRequestReason::Redirect));
-	}
+	makeRequest(finishSentRequest(requestId, FinishRequestReason::Redirect));
 }
 
 void DownloadMtprotoTask::loadPart(int sessionIndex) {
@@ -621,6 +620,9 @@ void DownloadMtprotoTask::requestMoreCdnFileHashes() {
 void DownloadMtprotoTask::normalPartLoaded(
 		const MTPupload_File &result,
 		mtpRequestId requestId) {
+	if (!_sentRequests.contains(requestId)) {
+		return;
+	}
 	const auto requestData = finishSentRequest(
 		requestId,
 		FinishRequestReason::Success);
@@ -655,6 +657,9 @@ void DownloadMtprotoTask::webPartLoaded(
 }
 
 void DownloadMtprotoTask::cdnPartLoaded(const MTPupload_CdnFile &result, mtpRequestId requestId) {
+	if (!_sentRequests.contains(requestId)) {
+		return;
+	}
 	result.match([&](const MTPDupload_cdnFileReuploadNeeded &data) {
 		const auto requestData = finishSentRequest(
 			requestId,
@@ -739,6 +744,9 @@ DownloadMtprotoTask::CheckCdnHashResult DownloadMtprotoTask::checkCdnFileHash(
 void DownloadMtprotoTask::reuploadDone(
 		const MTPVector<MTPFileHash> &result,
 		mtpRequestId requestId) {
+	if (!_sentRequests.contains(requestId)) {
+		return;
+	}
 	const auto requestData = finishSentRequest(
 		requestId,
 		FinishRequestReason::Redirect);
@@ -749,7 +757,9 @@ void DownloadMtprotoTask::reuploadDone(
 void DownloadMtprotoTask::getCdnFileHashesDone(
 		const MTPVector<MTPFileHash> &result,
 		mtpRequestId requestId) {
-	Expects(_cdnHashesRequestId == requestId);
+	if (_cdnHashesRequestId != requestId) {
+		return;
+	}
 
 	const auto requestData = finishSentRequest(
 		requestId,
@@ -930,6 +940,9 @@ bool DownloadMtprotoTask::normalPartFailed(
 		QByteArray fileReference,
 		const MTP::Error &error,
 		mtpRequestId requestId) {
+	if (!_sentRequests.contains(requestId)) {
+		return true;
+	}
 	if (MTP::IsDefaultHandledError(error)) {
 		return false;
 	}
@@ -958,6 +971,9 @@ bool DownloadMtprotoTask::partFailed(
 bool DownloadMtprotoTask::cdnPartFailed(
 		const MTP::Error &error,
 		mtpRequestId requestId) {
+	if (!_sentRequests.contains(requestId)) {
+		return true;
+	}
 	if (MTP::IsDefaultHandledError(error)) {
 		return false;
 	}

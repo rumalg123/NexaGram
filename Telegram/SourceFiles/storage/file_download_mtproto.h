@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "storage/file_download.h"
 #include "storage/download_manager_mtproto.h"
+#include "storage/persistent_file_sink.h"
 
 class mtpFileLoader final
 	: public FileLoader
@@ -54,8 +55,27 @@ public:
 
 	Data::FileOrigin fileOrigin() const override;
 	uint64 objId() const override;
+	int64 currentOffset() const override;
+	bool canCancel() const override;
+
+	void enablePersistent(bool replace);
+	[[nodiscard]] bool persistentCanSuspend() const;
+	[[nodiscard]] bool persistentCanResume() const;
+	[[nodiscard]] bool isPersistent() const;
+	void suspendPersistent();
+	void resumePersistent();
 
 private:
+	struct Persistent;
+
+	bool checkForOpen() override;
+	void openPersistent(bool resume);
+	void checkpointPersistent();
+	void failPersistent(Storage::PersistentFileSink::Result result);
+	void publishPersistent();
+	bool feedPersistentPart(int64 offset, const QByteArray &bytes);
+	void stopPersistentRequests();
+
 	Storage::Cache::Key cacheKey() const override;
 	std::optional<MediaKey> fileLocationKey() const override;
 	void startLoading() override;
@@ -68,6 +88,7 @@ private:
 	void cancelOnFail() override;
 	bool setWebFileSizeHook(int64 size) override;
 
+	std::unique_ptr<Persistent> _persistent;
 	bool _lastComplete = false;
 	int64 _nextRequestOffset = 0;
 

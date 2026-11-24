@@ -447,7 +447,9 @@ void DownloadManager::check(
 	// Load with progress only documents for now.
 	Assert(document != nullptr);
 
-	const auto path = document->filepath(true);
+	const auto path = document->hasPersistentDownload()
+		? QString()
+		: document->filepath(true);
 	if (!path.isEmpty()) {
 		if (_loading.contains(entry.object.item)) {
 			addLoaded(entry.object, path, entry.started);
@@ -699,9 +701,12 @@ bool DownloadManager::loadingInProgress(Main::Session *onlyInSession) const {
 
 HistoryItem *DownloadManager::lookupLoadingItem(
 		Main::Session *onlyInSession) const {
-	constexpr auto find = [](const SessionData &data) {
-		constexpr auto proj = &DownloadingId::done;
-		const auto i = ranges::find(data.downloading, false, proj);
+	const auto find = [=](const SessionData &data) {
+		const auto i = ranges::find_if(data.downloading, [=](const auto &entry) {
+			const auto document = entry.object.document;
+			return !entry.done && (onlyInSession || !document
+				|| !document->persistentDownloadPaused());
+		});
 		return (i != end(data.downloading)) ? i->object.item.get() : nullptr;
 	};
 	if (onlyInSession) {
@@ -768,8 +773,19 @@ void DownloadManager::loadingStopWithConfirmation(
 
 void DownloadManager::loadingStop(Main::Session *onlyInSession) {
 	const auto stopInSession = [&](SessionData &data) {
-		while (!data.downloading.empty()) {
-			cancel(data, data.downloading.end() - 1);
+		const auto shouldStop = [=](const DownloadingId &entry) {
+			const auto document = entry.object.document;
+			return onlyInSession || !document || !document->persistentDownloadPaused();
+		};
+		while (true) {
+			const auto found = ranges::find_if(
+				rbegin(data.downloading),
+				rend(data.downloading),
+				shouldStop);
+			if (found == rend(data.downloading)) {
+				return;
+			}
+			cancel(data, found.base() - 1);
 		}
 	};
 	if (onlyInSession) {

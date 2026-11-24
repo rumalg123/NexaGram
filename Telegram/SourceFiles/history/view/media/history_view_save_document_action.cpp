@@ -33,6 +33,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace HistoryView {
 
+void AddDownloadPauseResumeAction(
+		const Ui::Menu::MenuCallback &addAction,
+		not_null<DocumentData*> document) {
+	if (document->canPauseDownload()) {
+		addAction(u"Pause download"_q, [=] {
+			document->pauseDownload();
+		}, &st::menuIconDownload);
+	} else if (document->canResumeDownload()) {
+		addAction(u"Resume download"_q, [=] {
+			document->resumeDownload();
+		}, &st::menuIconDownload);
+	}
+}
+
 void AddSaveDocumentAction(
 		const Ui::Menu::MenuCallback &addAction,
 		not_null<HistoryItem*> item,

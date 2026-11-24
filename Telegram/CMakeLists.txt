@@ -84,6 +84,7 @@ include(cmake/test_iv_editor_state.cmake)
 include(cmake/test_iv_editor_table_grid.cmake)
 include(cmake/test_wallet_card_tint.cmake)
 include(cmake/test_wallet_phrase_shares.cmake)
+include(cmake/test_persistent_file_sink.cmake)
 
 set_target_properties(Telegram PROPERTIES AUTOMOC ON)
 
@@ -2142,6 +2143,8 @@ PRIVATE
     storage/file_download.h
     storage/file_download_mtproto.cpp
     storage/file_download_mtproto.h
+    storage/persistent_file_sink.cpp
+    storage/persistent_file_sink.h
     storage/file_download_web.cpp
     storage/file_download_web.h
     storage/file_upload.cpp
