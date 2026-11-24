@@ -2113,7 +2113,7 @@ void QuitAttempt() {
 }
 
 bool Application::readyToQuit() {
-	auto prevented = false;
+	auto prevented = _downloadManager->persistentQuitPending();
 	if (_calls->isQuitPrevent()) {
 		prevented = true;
 	}

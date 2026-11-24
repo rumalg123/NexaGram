@@ -9,7 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "storage/file_download.h"
 #include "storage/download_manager_mtproto.h"
-#include "storage/persistent_file_sink.h"
+#include "storage/pending_downloads.h"
 
 class mtpFileLoader final
 	: public FileLoader
@@ -56,20 +56,26 @@ public:
 	Data::FileOrigin fileOrigin() const override;
 	uint64 objId() const override;
 	int64 currentOffset() const override;
-	bool canCancel() const override;
+	bool canCancel() override;
 
-	void enablePersistent(bool replace);
+	void enablePersistent(Storage::PendingDownload job);
+	[[nodiscard]] QUuid persistentId() const;
 	[[nodiscard]] bool persistentCanSuspend() const;
 	[[nodiscard]] bool persistentCanResume() const;
 	[[nodiscard]] bool isPersistent() const;
-	void suspendPersistent();
-	void resumePersistent();
+	void suspendPersistent(bool manual = true, Fn<void()> done = nullptr);
+	void resumePersistent(const QByteArray &reference);
+	void stopPersistentForUnavailableSource();
 
 private:
 	struct Persistent;
 
 	bool checkForOpen() override;
 	void openPersistent(bool resume);
+	void persistentOpened(
+		Storage::PersistentFileSink::Result result,
+		QBitArray present,
+		int64 size);
 	void checkpointPersistent();
 	void failPersistent(Storage::PersistentFileSink::Result result);
 	void publishPersistent();

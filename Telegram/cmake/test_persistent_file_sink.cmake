@@ -12,6 +12,8 @@ nice_target_sources(test_persistent_file_sink ${src_loc}
 PRIVATE
     storage/persistent_file_sink.cpp
     storage/persistent_file_sink.h
+    storage/pending_downloads.cpp
+    storage/pending_downloads.h
     tests/test_persistent_file_sink.cpp
 )
 

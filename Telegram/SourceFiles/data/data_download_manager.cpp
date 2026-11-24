@@ -173,6 +173,7 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	auto &data = _sessions.emplace(session, SessionData()).first->second;
 	data.downloaded = deserialize(session);
 	data.resolveNeeded = data.downloaded.size();
+	loadPending(session);
 
 	session->data().documentLoadProgress(
 	) | rpl::filter([=](not_null<DocumentData*> document) {
@@ -264,9 +265,10 @@ void DownloadManager::addLoading(DownloadObject object) {
 
 	const auto shownExists = !data.downloading.empty()
 		&& !data.downloading.front().hiddenByView;
+	const auto pending = findPending(&object.document->session(), object.document->persistentDownloadId());
 	data.downloading.push_back({
 		.object = object,
-		.started = computeNextStartDate(),
+		.started = pending ? pending->started : computeNextStartDate(),
 		.path = path,
 		.total = size,
 		.hiddenByView = (!shownExists
@@ -370,6 +372,10 @@ auto DownloadManager::loadingExternalState(
 
 void DownloadManager::cancelLoadingExternal(
 		not_null<const HistoryItem*> item) {
+	if (pendingRow(item)) {
+		cancelPendingRow(item);
+		return;
+	}
 	const auto [data, i] = lookupExternal(item);
 	if (data) {
 		cancel(*data, i);
@@ -438,8 +444,14 @@ void DownloadManager::check(
 
 	if (entry.externalCancel) {
 		return;
-	} else if (!ItemContainsMedia(entry.object)) {
-		cancel(data, i);
+	} else if (!ItemContainsMedia(entry.object)
+		|| (entry.object.document && entry.object.document->hasPersistentDownload()
+			&& !entry.object.document->persistentSourceAllowed(entry.object.item->fullId()))) {
+		if (entry.object.document && entry.object.document->hasPersistentDownload()) {
+			pendingSourceRemoved(data, i);
+		} else {
+			cancel(data, i);
+		}
 		return;
 	}
 	const auto document = entry.object.document;
@@ -704,8 +716,8 @@ HistoryItem *DownloadManager::lookupLoadingItem(
 	const auto find = [=](const SessionData &data) {
 		const auto i = ranges::find_if(data.downloading, [=](const auto &entry) {
 			const auto document = entry.object.document;
-			return !entry.done && (onlyInSession || !document
-				|| !document->persistentDownloadPaused());
+			return !entry.done && !pendingRow(entry.object.item)
+				&& (!document || !document->hasPersistentDownload());
 		});
 		return (i != end(data.downloading)) ? i->object.item.get() : nullptr;
 	};
@@ -775,7 +787,8 @@ void DownloadManager::loadingStop(Main::Session *onlyInSession) {
 	const auto stopInSession = [&](SessionData &data) {
 		const auto shouldStop = [=](const DownloadingId &entry) {
 			const auto document = entry.object.document;
-			return onlyInSession || !document || !document->persistentDownloadPaused();
+			return !pendingRow(entry.object.item)
+				&& (!document || !document->hasPersistentDownload());
 		};
 		while (true) {
 			const auto found = ranges::find_if(
@@ -1027,6 +1040,14 @@ void DownloadManager::cancel(
 		std::vector<DownloadingId>::iterator i) {
 	const auto object = i->object;
 	const auto item = object.item;
+	if (pendingRow(item)) {
+		cancelPendingRow(item);
+		return;
+	}
+	if (object.document && object.document->hasPersistentDownload()) {
+		object.document->cancel();
+		return;
+	}
 	if (auto external = base::take(i->externalCancel)) {
 		remove(data, i);
 		external();
@@ -1085,6 +1106,10 @@ void DownloadManager::removed(not_null<const HistoryItem*> item) {
 		const auto i = ranges::find(data.downloading, item, ByItem);
 		Assert(i != end(data.downloading));
 
+		if (i->object.document && i->object.document->hasPersistentDownload()) {
+			pendingSourceRemoved(data, i);
+			return;
+		}
 		// We don't want to download files without messages.
 		// For example, there is no way to refresh a file reference for them.
 		//entry.object.item = nullptr;

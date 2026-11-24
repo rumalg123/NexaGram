@@ -14,7 +14,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_location.h"
 
 class HistoryItem;
-class mtpFileLoader;
 class PhotoData;
 enum class ChatRestriction;
 class mtpFileLoader;
@@ -28,6 +27,7 @@ enum class NameType : uchar;
 } // namespace Core
 
 namespace Storage {
+struct PendingDownload;
 class StreamedFileDownloader;
 namespace Cache {
 struct Key;
@@ -156,11 +156,17 @@ public:
 		bool autoLoading = false,
 		SaveIntent intent = SaveIntent::Default);
 	[[nodiscard]] bool hasPersistentDownload() const;
+	[[nodiscard]] QUuid persistentDownloadId() const;
+	[[nodiscard]] bool restorePendingDownload(const Storage::PendingDownload &job);
+	void suspendPendingForQuit(Fn<void()> done);
+	[[nodiscard]] bool persistentSourceAllowed(Data::FileOrigin origin) const;
 	[[nodiscard]] bool persistentDownloadPaused() const;
 	[[nodiscard]] bool canPauseDownload() const;
 	[[nodiscard]] bool canResumeDownload() const;
 	void pauseDownload();
 	void resumeDownload();
+	void resumeValidatedPendingDownload();
+	void stopPendingForUnavailableSource();
 	void cancel();
 	[[nodiscard]] bool cancelled() const;
 	void resetCancelled();
@@ -406,7 +412,11 @@ private:
 
 	void finishLoad();
 	[[nodiscard]] mtpFileLoader *nativeFileLoader() const;
-	[[nodiscard]] bool persistentSourceAllowed(Data::FileOrigin origin) const;
+	[[nodiscard]] std::unique_ptr<mtpFileLoader> makeNativeLoader(
+		Data::FileOrigin origin,
+		const QString &toFile,
+		LoadFromCloudSetting fromCloud,
+		bool autoLoading);
 	void handleLoaderUpdates();
 	void destroyLoader();
 

@@ -454,6 +454,12 @@ const DownloadMtprotoTask::Location &DownloadMtprotoTask::location() const {
 	return _location;
 }
 
+void DownloadMtprotoTask::updateFileReference(const QByteArray &reference) {
+	if (const auto location = std::get_if<StorageFileLocation>(&_location.data)) {
+		location->refreshFileReference(reference);
+	}
+}
+
 void DownloadMtprotoTask::refreshFileReferenceFrom(
 		const Data::UpdatedFileReferences &updates,
 		int requestId,

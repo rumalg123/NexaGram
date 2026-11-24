@@ -164,6 +164,7 @@ public:
 		const QByteArray &current);
 
 protected:
+	void updateFileReference(const QByteArray &reference);
 	[[nodiscard]] bool haveSentRequests() const;
 	[[nodiscard]] bool haveSentRequestForOffset(int64 offset) const;
 	void cancelAllRequests();

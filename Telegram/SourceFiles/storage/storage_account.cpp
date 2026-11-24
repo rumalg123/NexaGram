@@ -43,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "webview/webview_interface.h"
 #include "window/themes/window_theme.h"
 
+
 namespace Storage {
 namespace {
 
@@ -634,12 +635,12 @@ void Account::writeMapQueued() {
 	});
 }
 
-void Account::writeMap() {
+bool Account::writeMap(bool checked) {
 	Expects(_localKey != nullptr);
 
 	_writeMapTimer.cancel();
-	if (!_mapChanged) {
-		return;
+	if (!_mapChanged && !checked) {
+		return true;
 	}
 	_mapChanged = false;
 
@@ -647,7 +648,7 @@ void Account::writeMap() {
 		QDir().mkpath(_basePath);
 	}
 
-	FileWriteDescriptor map(u"map"_q, _basePath);
+	FileWriteDescriptor map(u"map"_q, _basePath, checked, checked);
 	map.writeData(QByteArray());
 	map.writeData(QByteArray());
 
@@ -812,8 +813,9 @@ void Account::writeMap() {
 		}
 	}
 	map.writeEncrypted(mapData, _localKey);
-
-	_mapChanged = false;
+	const auto result = map.finish();
+	_mapChanged = !result;
+	return result;
 }
 
 void Account::reset() {
@@ -899,10 +901,10 @@ void Account::reset() {
 	Local::sync();
 }
 
-void Account::writeLocations() {
+bool Account::writeLocations(bool checked) {
 	_writeLocationsTimer.cancel();
-	if (!_locationsChanged) {
-		return;
+	if (!_locationsChanged && !checked) {
+		return true;
 	}
 	_locationsChanged = false;
 
@@ -920,7 +922,10 @@ void Account::writeLocations() {
 	} else {
 		if (!_locationsKey) {
 			_locationsKey = GenerateKey(_basePath);
-			writeMapQueued();
+			if (!checked) {
+				writeMapQueued();
+			}
+			_mapChanged = true;
 		}
 		quint32 size = 0;
 		for (auto i = _fileLocations.cbegin(), e = _fileLocations.cend(); i != e; ++i) {
@@ -973,9 +978,65 @@ void Account::writeLocations() {
 
 		data.stream << quint32(0) << _downloadsSerialized;
 
-		FileWriteDescriptor file(_locationsKey, _basePath);
+		FileWriteDescriptor file(_locationsKey, _basePath, checked, checked);
 		file.writeEncrypted(data, _localKey);
+		if (!file.finish() || (checked && !writeMap(true))) {
+			_locationsChanged = true;
+			return false;
+		}
 	}
+	return true;
+}
+
+bool Account::flushDownloads() {
+	return _localKey && writeLocations(true);
+}
+
+PendingDownloadFile Account::pendingDownloadFile(quint64 account) const {
+	return {
+		.path = _basePath + u"pending-downloads/"_q
+			+ QString::number(account, 16) + u".bin"_q,
+		.key = _localKey,
+		.account = account,
+	};
+}
+
+std::optional<PendingDownloadList> PendingDownloadFile::read() const {
+	if (!key || !SafePersistentDownloadPath(path)) {
+		return std::nullopt;
+	}
+	auto file = QFile(path);
+	if (!QFileInfo(path).isFile()) {
+		if (PersistentDownloadPathMissing(path)) {
+			return PendingDownloadList();
+		}
+		return std::nullopt;
+	}
+	if (!file.open(QIODevice::ReadOnly | QIODevice::ExistingOnly)
+		|| file.size() > kPendingDownloadRegistrySize + 64) {
+		return std::nullopt;
+	}
+	auto encrypted = file.read(kPendingDownloadRegistrySize + 65);
+	if (encrypted.size() > kPendingDownloadRegistrySize + 64) {
+		return std::nullopt;
+	}
+	auto data = EncryptedDescriptor();
+	if (!DecryptLocal(data, encrypted, key)) {
+		return std::nullopt;
+	}
+	return ParsePendingDownloads(account, data.buffer.readAll());
+}
+
+bool PendingDownloadFile::write(const PendingDownloadList &jobs) const {
+	const auto bytes = SerializePendingDownloads(account, jobs);
+	if (!key || bytes.isEmpty()) {
+		return false;
+	}
+	auto data = EncryptedDescriptor(bytes.size());
+	if (data.stream.writeRawData(bytes.constData(), bytes.size()) != bytes.size()) {
+		return false;
+	}
+	return ReplacePendingDownloadRegistry(path, PrepareEncrypted(data, key));
 }
 
 void Account::writeLocationsQueued() {

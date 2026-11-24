@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "main/main_account.h"
 
+#include "data/data_download_manager.h"
+
 #include "base/platform/base_platform_info.h"
 #include "core/application.h"
 #include "storage/storage_account.h"
@@ -214,6 +216,9 @@ void Account::destroySession(DestroyReason reason) {
 	// listener may enter a nested event dispatch that drains crl::on_main.
 	// Nothing may delete this Account while we're still on the stack.
 	_destroyingSession = true;
+	if (reason == DestroyReason::LoggedOut) {
+		Core::App().downloadManager().retirePending(_session.get());
+	}
 	_sessionValue = nullptr;
 
 	if (reason == DestroyReason::LoggedOut) {

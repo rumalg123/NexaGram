@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <QtCore/QBitArray>
 #include <QtCore/QByteArray>
+#include <QtCore/QDataStream>
 #include <QtCore/QFile>
 #include <QtCore/QUuid>
 
@@ -17,6 +18,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Storage {
 
 inline constexpr auto kPersistentDownloadPartSize = 128 * 1024;
+
+[[nodiscard]] bool FlushPersistentDownloadFile(QFileDevice &file);
+[[nodiscard]] bool SafePersistentDownloadPath(const QString &path);
+[[nodiscard]] bool PersistentDownloadPathMissing(const QString &path);
+[[nodiscard]] bool FitsPersistentDownloadField(
+	QDataStream &stream,
+	quint32 limit,
+	bool bitCount = false);
 
 class PersistentDownloadRequests final {
 public:
@@ -66,11 +75,21 @@ public:
 		Job job,
 		std::unique_ptr<QFile> file = std::make_unique<QFile>());
 
-	[[nodiscard]] Result open(bool resume);
+	[[nodiscard]] Result open(
+		bool resume,
+		QByteArrayView expectedIdentity = {},
+		bool deferCheckpoint = false,
+		bool allowEmptyRecovery = false);
+	[[nodiscard]] Result inspectPublished(QByteArrayView expectedIdentity);
+	[[nodiscard]] bool matchesPublished(QByteArrayView expectedIdentity) const;
+	[[nodiscard]] Result purge(QByteArrayView expectedIdentity);
+	[[nodiscard]] bool removePublishedCheckpoint();
+	[[nodiscard]] const QByteArray &identity() const;
 	[[nodiscard]] Result write(qint64 offset, QByteArrayView bytes);
 	[[nodiscard]] Result checkpoint();
 	[[nodiscard]] Result suspend();
-	[[nodiscard]] Result publish();
+	[[nodiscard]] Result preparePublish();
+	[[nodiscard]] Result publish(bool keepCheckpoint = false);
 	[[nodiscard]] Result cancel();
 
 	[[nodiscard]] const QBitArray &committed() const;
@@ -79,7 +98,8 @@ public:
 	[[nodiscard]] QString checkpointPath() const;
 
 private:
-	[[nodiscard]] Result readCheckpoint();
+	[[nodiscard]] Result readCheckpoint(bool verify = true);
+	void initializeCoverage();
 	[[nodiscard]] bool ownsStaging() const;
 	[[nodiscard]] qint64 partLength(qsizetype index) const;
 	void log(const char *action) const;

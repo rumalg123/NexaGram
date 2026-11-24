@@ -795,6 +795,7 @@ PRIVATE
     data/data_document_resolver.cpp
     data/data_document_resolver.h
     data/data_download_manager.cpp
+    data/data_download_manager_pending.cpp
     data/data_download_manager.h
     data/data_drafts.cpp
     data/data_drafts.h
@@ -2145,6 +2146,8 @@ PRIVATE
     storage/file_download_mtproto.h
     storage/persistent_file_sink.cpp
     storage/persistent_file_sink.h
+    storage/pending_downloads.cpp
+    storage/pending_downloads.h
     storage/file_download_web.cpp
     storage/file_download_web.h
     storage/file_upload.cpp

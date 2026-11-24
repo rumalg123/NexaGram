@@ -447,6 +447,7 @@ private:
 struct DocumentExternalLoading {
 	int64 ready = 0;
 	int64 total = 0;
+	QString status;
 };
 
 struct DocumentFields {

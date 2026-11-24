@@ -111,7 +111,7 @@ public:
 
 	void start();
 	void cancel();
-	[[nodiscard]] virtual bool canCancel() const { return true; }
+	[[nodiscard]] virtual bool canCancel() { return true; }
 
 	[[nodiscard]] bool loadingLocal() const {
 		return (_localStatus == LocalStatus::Loading);

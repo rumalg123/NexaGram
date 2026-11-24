@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/timer.h"
 #include "base/flags.h"
 #include "storage/cache/storage_cache_database.h"
+#include "storage/pending_downloads.h"
 #include "data/stickers/data_stickers_set.h"
 #include "data/data_drafts.h"
 #include "webview/webview_common.h"
@@ -61,6 +62,15 @@ struct MessageDraft {
 struct MessageDraftSource {
 	Fn<MessageDraft()> draft;
 	Fn<MessageCursor()> cursor;
+};
+
+struct PendingDownloadFile {
+	QString path;
+	MTP::AuthKeyPtr key;
+	quint64 account = 0;
+
+	[[nodiscard]] std::optional<PendingDownloadList> read() const;
+	[[nodiscard]] bool write(const PendingDownloadList &jobs) const;
 };
 
 struct WalletEngineValue {
@@ -121,6 +131,8 @@ public:
 
 	void updateDownloads(Fn<std::optional<QByteArray>()> downloadsSerialize);
 	[[nodiscard]] QByteArray downloadsSerialized() const;
+	[[nodiscard]] PendingDownloadFile pendingDownloadFile(quint64 account) const;
+	[[nodiscard]] bool flushDownloads();
 
 	[[nodiscard]] EncryptionKey cacheKey() const;
 	[[nodiscard]] QString cachePath() const;
@@ -271,10 +283,10 @@ private:
 	void clearLegacyFiles();
 	void writeMapDelayed();
 	void writeMapQueued();
-	void writeMap();
+	bool writeMap(bool checked = false);
 
 	void readLocations();
-	void writeLocations();
+	bool writeLocations(bool checked = false);
 	void writeLocationsQueued();
 	void writeLocationsDelayed();
 

@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_file_click_handler.h"
 
+#include "data/data_file_origin.h"
+
 #include "core/click_handler_types.h"
 #include "core/file_utilities.h"
 #include "core/application.h"
@@ -91,6 +93,13 @@ void DocumentSaveClickHandler::Save(
 		return;
 	}
 	InvokeQueued(qApp, crl::guard(&data->session(), [=] {
+		if (Storage::PendingDownloadsEnabled()) {
+			if (const auto item = std::get_if<FullMsgId>(&origin.data)) {
+				if (Core::App().downloadManager().resumePending(data, *item)) {
+					return;
+				}
+			}
+		}
 		// If we call file dialog synchronously, it will stop
 		// background thread timers from working which would
 		// stop audio playback in voice chats / live streams.

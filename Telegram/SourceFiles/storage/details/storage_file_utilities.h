@@ -77,11 +77,13 @@ public:
 	FileWriteDescriptor(
 		const FileKey &key,
 		const QString &basePath,
-		bool sync = false);
+		bool sync = false,
+		bool atomicOnly = false);
 	FileWriteDescriptor(
 		const QString &name,
 		const QString &basePath,
-		bool sync = false);
+		bool sync = false,
+		bool atomicOnly = false);
 	~FileWriteDescriptor();
 
 	void writeData(const QByteArray &data);
@@ -106,6 +108,7 @@ private:
 	HashMd5 _md5;
 	int _fullSize = 0;
 	bool _sync = false;
+	bool _atomicOnly = false;
 	bool _result = true;
 
 };

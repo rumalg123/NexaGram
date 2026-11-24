@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 
 #include "data/data_document_resolver.h"
+#include "data/data_download_manager.h"
 #include "data/data_session.h"
 #include "data/data_streaming.h"
 #include "data/data_document_media.h"
@@ -1277,6 +1278,9 @@ void DocumentData::save(
 
 	if (_loader) {
 		if (!_loader->setFileName(toFile)) {
+			if (hasPersistentDownload()) {
+				return;
+			}
 			cancel();
 		}
 	}
@@ -1318,35 +1322,29 @@ void DocumentData::save(
 				autoLoading,
 				cacheTag());
 		} else {
-			auto loader = std::make_unique<mtpFileLoader>(
-				&session(),
-				StorageFileLocation(
-					_dc,
-					session().userId(),
-					MTP_inputDocumentFileLocation(
-						MTP_long(id),
-						MTP_long(_access),
-						MTP_bytes(_fileReference),
-						MTP_string())),
-				origin,
-				locationType(),
-				toFile,
-				size,
-				size,
-				(saveToCache() ? LoadToCacheAsWell : LoadToFileOnly),
-				fromCloud,
-				autoLoading,
-				cacheTag());
+			auto job = std::optional<Storage::PendingDownload>();
 			if (intent != SaveIntent::Default
-				&& qEnvironmentVariableIntValue(
-					"TDESKTOP_EXPERIMENTAL_RESUMABLE_DOWNLOADS") == 1
+				&& Storage::PendingDownloadsEnabled()
 				&& !autoLoading
 				&& fromCloud == LoadFromCloudOrLocal
 				&& !saveToCache()
 				&& QFileInfo(toFile).isAbsolute()
 				&& Core::App().settings().downloadPath() != FileDialog::Tmp()
 				&& persistentSourceAllowed(origin)) {
-				loader->enablePersistent(intent == SaveIntent::ExplicitWithOverwrite);
+				job = Core::App().downloadManager().reservePending(
+					this,
+					std::get<FullMsgId>(origin.data),
+					toFile,
+					intent == SaveIntent::ExplicitWithOverwrite);
+				if (!job) {
+					Ui::show(Ui::MakeInformBox(u"Could not start the resumable download. Check Downloads for an existing job or try again."_q));
+					return;
+				}
+			}
+			auto loader = makeNativeLoader(
+				origin, job ? job->file.destination : toFile, fromCloud, autoLoading);
+			if (job) {
+				loader->enablePersistent(std::move(*job));
 			}
 			_loader = std::move(loader);
 		}
@@ -1413,6 +1411,9 @@ bool DocumentData::persistentSourceAllowed(Data::FileOrigin origin) const {
 	const auto item = id ? _owner->message(*id) : nullptr;
 	const auto media = item ? item->media() : nullptr;
 	return hasRemoteLocation()
+		&& !hasWebLocation()
+		&& !useStreamingLoader()
+		&& !saveToCache()
 		&& size > 0
 		&& size <= 4000 * int64(1024 * 1024)
 		&& !forbidsFileSave()
@@ -1424,6 +1425,67 @@ bool DocumentData::persistentSourceAllowed(Data::FileOrigin origin) const {
 		&& !item->forbidsForward()
 		&& item->history()->peer->allowsForwarding()
 		&& !media->ttlSeconds();
+}
+
+std::unique_ptr<mtpFileLoader> DocumentData::makeNativeLoader(
+		Data::FileOrigin origin,
+		const QString &toFile,
+		LoadFromCloudSetting fromCloud,
+		bool autoLoading) {
+	return std::make_unique<mtpFileLoader>(
+		&session(),
+		StorageFileLocation(
+			_dc,
+			session().userId(),
+			MTP_inputDocumentFileLocation(
+				MTP_long(id),
+				MTP_long(_access),
+				MTP_bytes(_fileReference),
+				MTP_string())),
+		origin,
+		locationType(),
+		toFile,
+		size,
+		size,
+		(saveToCache() ? LoadToCacheAsWell : LoadToFileOnly),
+		fromCloud,
+		autoLoading,
+		cacheTag());
+}
+
+QUuid DocumentData::persistentDownloadId() const {
+	const auto loader = nativeFileLoader();
+	return loader ? loader->persistentId() : QUuid();
+}
+
+bool DocumentData::restorePendingDownload(const Storage::PendingDownload &job) {
+	const auto origin = FullMsgId(PeerId(job.peer), MsgId(job.message));
+	if (_loader || job.document != id || job.file.size != size
+		|| !persistentSourceAllowed(origin)) {
+		return false;
+	}
+	auto loader = makeNativeLoader(
+		origin, job.file.destination, LoadFromCloudOrLocal, false);
+	auto recovered = job;
+	if (recovered.stagingIdentity.isEmpty()) {
+		recovered.file.replace = false;
+	}
+	loader->enablePersistent(std::move(recovered));
+	_loader = std::move(loader);
+	resetCancelled();
+	status = FileReady;
+	handleLoaderUpdates();
+	_loader->start();
+	return true;
+}
+
+void DocumentData::suspendPendingForQuit(Fn<void()> done) {
+	const auto loader = nativeFileLoader();
+	if (loader && loader->persistentCanSuspend()) {
+		loader->suspendPersistent(false, std::move(done));
+	} else {
+		done();
+	}
 }
 
 bool DocumentData::hasPersistentDownload() const {
@@ -1455,8 +1517,27 @@ void DocumentData::pauseDownload() {
 }
 
 void DocumentData::resumeDownload() {
+	const auto loader = nativeFileLoader();
+	if (loader && loader->persistentCanResume()) {
+		const auto origin = loader->fileOrigin();
+		if (const auto id = std::get_if<FullMsgId>(&origin.data)) {
+			const auto requested = Core::App().downloadManager().resumePending(this, *id);
+			if (!requested) {
+				Storage::TracePendingDownload(loader->persistentId(), "resume job unavailable");
+			}
+		}
+	}
+}
+
+void DocumentData::resumeValidatedPendingDownload() {
 	if (canResumeDownload()) {
-		nativeFileLoader()->resumePersistent();
+		nativeFileLoader()->resumePersistent(_fileReference);
+	}
+}
+
+void DocumentData::stopPendingForUnavailableSource() {
+	if (const auto loader = nativeFileLoader()) {
+		loader->stopPersistentForUnavailableSource();
 	}
 }
 

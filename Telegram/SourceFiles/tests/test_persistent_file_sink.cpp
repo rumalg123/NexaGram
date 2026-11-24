@@ -6,9 +6,11 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/persistent_file_sink.h"
+#include "storage/pending_downloads.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QCryptographicHash>
+#include <QtCore/QDataStream>
 #include <QtCore/QDebug>
 #include <QtCore/QFileInfo>
 #include <QtCore/QProcess>
@@ -347,6 +349,152 @@ void TestBatching(const QTemporaryDir &dir) {
 	Check(sink.cancel() == Result::Ok, "clean batch fixture");
 }
 
+void TestRegistry(const QTemporaryDir &dir) {
+	using State = Storage::PendingDownloadState;
+	const auto owner = quint64(100123);
+	const auto testOwner = owner | 0x0100'0000'0000'0000ULL;
+	const auto job = Storage::PendingDownload{
+		.file = Job(dir, u"registry.bin"_s, (qint64(1) << 31) + 7),
+		.stagingIdentity = QByteArray(24, 'i'),
+		.peer = 200,
+		.message = 42,
+		.channelAccess = 77,
+		.document = 300,
+		.displayName = u"test document"_s,
+		.started = 1000,
+		.updated = 2000,
+		.state = State::Paused,
+	};
+	const auto data = Storage::SerializePendingDownloads(owner, { job });
+	const auto read = Storage::ParsePendingDownloads(owner, data);
+	Check(read && read->size() == 1, "load one registry entry");
+	Check(Storage::SerializePendingDownloads(owner, *read) == data,
+		"registry complete round trip");
+	Check(!Storage::ParsePendingDownloads(owner + 1, data), "reject different account");
+	Check(!Storage::ParsePendingDownloads(testOwner, data), "reject different network");
+	Check(!Storage::ParsePendingDownloads(owner, data.chopped(1)), "reject truncated registry");
+	Check(!Storage::ParsePendingDownloads(owner, data + 'x'), "reject trailing data");
+	auto unsupported = data;
+	unsupported[7] = char(99);
+	Check(!Storage::ParsePendingDownloads(owner, unsupported), "reject unsupported registry version");
+	auto corrupt = data;
+	corrupt[0] = char(0);
+	Check(!Storage::ParsePendingDownloads(owner, corrupt), "reject corrupted registry header");
+	auto oversized = data;
+	auto stream = QDataStream(&oversized, QIODevice::ReadWrite);
+	Check(stream.device()->seek(36), "seek to version 1 destination length");
+	stream << quint32(0x40000000);
+	Check(!Storage::ParsePendingDownloads(owner, oversized), "reject oversized field before allocation");
+	Check(Storage::SerializePendingDownloads(owner, { job, job }).isEmpty(), "reject duplicate job ID");
+	Check(!Storage::PendingDownloadTransition(State::Initializing, State::Finalizing)
+		&& Storage::PendingDownloadTransition(State::Initializing, State::Downloading)
+		&& Storage::PendingDownloadTransition(State::Downloading, State::Paused)
+		&& Storage::PendingDownloadTransition(State::Downloading, State::Interrupted)
+		&& Storage::PendingDownloadTransition(State::Paused, State::Downloading)
+		&& Storage::PendingDownloadTransition(State::Interrupted, State::Retryable)
+		&& Storage::PendingDownloadTransition(State::Retryable, State::Unavailable)
+		&& !Storage::PendingDownloadTransition(State::Unavailable, State::Downloading)
+		&& Storage::PendingDownloadTransition(State::Unavailable, State::Cancelling)
+		&& !Storage::PendingDownloadTransition(State::Cancelling, State::Downloading),
+		"allow recovery edges and reject terminal resurrection");
+
+	const auto path = dir.filePath(u"registry/atomic.bin"_s);
+	const auto oldPayload = QByteArray("first opaque test payload");
+	const auto newPayload = QByteArray("new opaque test payload");
+	Check(Storage::ReplacePendingDownloadRegistry(path, oldPayload), "create checked registry");
+	Check(!Storage::ReplacePendingDownloadRegistry(path, QByteArray()), "reject invalid replacement");
+#ifdef Q_OS_WIN
+	const auto name = QDir::toNativeSeparators(path).toStdWString();
+	const auto locked = CreateFileW(name.c_str(), GENERIC_READ, FILE_SHARE_READ,
+		nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	Check(locked != INVALID_HANDLE_VALUE, "lock previous registry");
+	Check(!Storage::ReplacePendingDownloadRegistry(path, newPayload), "atomic replacement fails");
+	Check(CloseHandle(locked), "unlock previous registry");
+#endif
+	Check(Read(path) == oldPayload, "previous registry still valid");
+	Check(Storage::ReplacePendingDownloadRegistry(path, newPayload)
+		&& Read(path) == newPayload, "replacement succeeds after retry");
+}
+
+void TestCreationRecovery(const QTemporaryDir &dir) {
+	const auto job = Job(dir, u"reserved.bin"_s, 2 * kPart);
+	auto identity = QByteArray();
+	{
+		auto staged = Sink(job);
+		Check(!QFileInfo::exists(staged.stagingPath())
+			&& !QFileInfo::exists(staged.checkpointPath()), "registry reservation has no artifact");
+		Check(staged.open(false, {}, true) == Result::Ok, "create before staging identity commit");
+		identity = staged.identity();
+		Check(!identity.isEmpty() && !QFileInfo::exists(staged.checkpointPath()),
+			"initial checkpoint deferred");
+	}
+	{
+		auto unknown = Sink(job);
+		Check(unknown.open(false, {}, true) != Result::Ok
+			&& unknown.purge({}) == Result::Replaced,
+			"unregistered staging identity cannot be adopted or removed");
+		Check(QFileInfo::exists(unknown.stagingPath()), "unknown stage is preserved");
+	}
+	{
+		auto known = Sink(job);
+		Check(known.open(true, identity, false, true) == Result::Ok
+			&& known.committed().count(true) == 0, "registered empty stage can initialize checkpoint");
+		Check(known.suspend() == Result::Ok, "preserve initialized stage");
+	}
+	{
+		auto recovered = Sink(job);
+		Check(recovered.open(true, identity) == Result::Ok
+			&& recovered.committed().count(true) == 0, "reopen first checkpoint after restart");
+		Check(recovered.purge(identity) == Result::Ok, "finish interrupted cancellation");
+	}
+	auto missing = Sink(job);
+	Check(missing.open(true, identity) == Result::Missing
+		&& !QFileInfo::exists(missing.stagingPath()), "never recreate known missing staging");
+	Check(missing.purge(identity) == Result::Ok, "cancellation cleanup is idempotent");
+}
+
+void TestPublicationRecovery(const QTemporaryDir &dir) {
+	const auto job = Job(dir, u"recover-publish.bin"_s, kPart + 3);
+	const auto head = QByteArray(kPart, 'p');
+	const auto body = head + "end";
+	auto identity = QByteArray();
+	{
+		auto stage = Sink(job);
+		Check(stage.open(false) == Result::Ok
+			&& stage.write(0, head) == Result::Ok
+			&& stage.write(kPart, "end") == Result::Ok
+			&& stage.preparePublish() == Result::Ok, "crash boundary before rename");
+		identity = stage.identity();
+	}
+	{
+		auto recovered = Sink(job);
+		Check(recovered.inspectPublished(identity) == Result::Missing,
+			"never report completion before rename");
+		Check(recovered.open(true, identity) == Result::Ok
+			&& recovered.committed().count(true) == 2, "all offsets already committed");
+		auto requests = Storage::PersistentDownloadRequests();
+		requests.reset(recovered.committed());
+		Check(requests.empty(), "publication retry needs no network bytes");
+		Check(recovered.publish(true) == Result::Ok
+			&& QFileInfo::exists(recovered.checkpointPath()), "retain proof after rename");
+	}
+	{
+		auto after = Sink(job);
+		Check(after.inspectPublished(identity) == Result::Ok, "crash boundary after rename");
+		Check(Sha256(Read(job.destination)) == Sha256(body), "recovered final SHA-256");
+		Check(after.purge(identity) == Result::Ok && !QFileInfo::exists(after.checkpointPath()),
+			"durable history permits sidecar removal");
+		Check(after.matchesPublished(identity) && QFileInfo::exists(job.destination),
+			"idempotent cleanup retains completed file");
+	}
+	Check(QFile::rename(job.destination, dir.filePath(u"keep-complete.bin"_s)),
+		"move verified completed fixture");
+	Put(job.destination, body);
+	auto unrelated = Sink(job);
+	Check(unrelated.inspectPublished(identity) == Result::Replaced
+		&& !unrelated.matchesPublished(identity), "same bytes with different identity are unrelated");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -368,6 +516,9 @@ int main(int argc, char **argv) {
 	TestLargeOffset(dir);
 	TestBatching(dir);
 	TestRequestGeneration();
+	TestRegistry(dir);
+	TestCreationRecovery(dir);
+	TestPublicationRecovery(dir);
 	qInfo("Persistent file sink tests passed.");
 	return EXIT_SUCCESS;
 }

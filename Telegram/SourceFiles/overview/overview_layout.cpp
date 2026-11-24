@@ -1495,14 +1495,16 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 	const auto selected = (selection == FullSelection);
 
 	const auto cornerDownload = downloadInCorner();
+	const auto external = externalLoading();
+	const auto pending = external && !external->status.isEmpty();
 
 	auto peerId = parent()->from() ? parent()->from()->id : PeerId(0);
 	auto user = parent()->history()->session().data().peerLoaded(parent()->from() ? parent()->from()->id : PeerId(0));
-	if (!blockExist(peerId.value) || (!GetEnhancedBool("blocked_user_spoiler_mode") && user && !user->isBlocked())) {
+	if (!pending && (!blockExist(peerId.value) || (!GetEnhancedBool("blocked_user_spoiler_mode") && user && !user->isBlocked()))) {
 		_dataMedia->automaticLoad(parent()->fullId(), parent());
 	}
 	const auto loaded = dataLoaded();
-	const auto displayLoading = externalLoading().has_value()
+	const auto displayLoading = (external && !pending)
 		|| _data->displayLoading();
 
 	if (displayLoading) {
@@ -1617,7 +1619,7 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 					st::roundRadiusSmall);
 			}
 
-			if (radial || (!loaded && !activeLoading())) {
+			if (radial || pending || (!loaded && !activeLoading())) {
 				QRect inner(rthumb.x() + (rthumb.width() - _st.songThumbSize) / 2, rthumb.y() + (rthumb.height() - _st.songThumbSize) / 2, _st.songThumbSize, _st.songThumbSize);
 				if (clip.intersects(inner)) {
 					auto radialOpacity = (radial && loaded && !_data->uploading()) ? _radial->opacity() : 1;
@@ -1643,8 +1645,8 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 					}
 
 					p.setOpacity(radialOpacity);
-					auto icon = ([loaded, this, selected] {
-						if (loaded || activeLoading()) {
+					auto icon = ([loaded, pending, this, selected] {
+						if (loaded || (activeLoading() && !pending)) {
 							return &(selected ? st::historyFileThumbCancelSelected : st::historyFileThumbCancel);
 						}
 						return &(selected ? st::historyFileThumbDownloadSelected : st::historyFileThumbDownload);
@@ -1671,7 +1673,10 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 	if (clip.intersects(style::rtlrect(nameleft, statustop, availwidth, st::normalFont->height, _width))) {
 		p.setFont(st::normalFont);
 		p.setPen((isSong && selected) ? st::mediaInFgSelected : st::mediaInFg);
-		p.drawTextLeft(nameleft, statustop, _width, _status.text());
+		const auto status = pending
+			? external->status + u" · "_q + _status.text()
+			: _status.text();
+		p.drawTextLeft(nameleft, statustop, _width, st::normalFont->elided(status, availwidth));
 	}
 	if (datetop >= 0 && clip.intersects(style::rtlrect(nameleft, datetop, _datew, st::normalFont->height, _width))) {
 		p.setFont((_msgl && ClickHandler::showAsActive(_msgl))

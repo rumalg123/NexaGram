@@ -472,10 +472,16 @@ std::unique_ptr<BaseLayout> Provider::createLayout(
 				return DocumentExternalLoading{
 					.ready = state->ready,
 					.total = state->total,
+					.status = manager.pendingRowStatus(item),
 				};
 			};
 			fields.externalCancel = [item] {
-				Core::App().downloadManager().cancelLoadingExternal(item);
+				auto &manager = Core::App().downloadManager();
+				if (manager.pendingRow(item)) {
+					manager.resumePendingRow(item);
+				} else {
+					manager.cancelLoadingExternal(item);
+				}
 			};
 		}
 		return std::make_unique<Document>(
@@ -491,8 +497,9 @@ ListItemSelectionData Provider::computeSelectionData(
 		not_null<const HistoryItem*> item,
 		TextSelection selection) {
 	auto result = ListItemSelectionData(selection);
-	result.canDelete = true;
-	result.canForward = item->allowsForward()
+	const auto pending = Core::App().downloadManager().pendingRow(item);
+	result.canDelete = !pending;
+	result.canForward = !pending && item->allowsForward()
 		&& (&item->history()->session() == &_controller->session());
 	return result;
 }

@@ -13,8 +13,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QDir>
 #include <QtCore/QFileInfo>
 #include <QtCore/QSaveFile>
+#include <QtCore/QScopeGuard>
+#include <QtCore/QtEndian>
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdio>
 #include <utility>
 
@@ -74,13 +77,14 @@ QByteArray Identity(QFile &file) {
 
 QByteArray PathIdentity(const QString &path) {
 	auto file = QFile(path);
-	return (!QFileInfo(file).isSymLink()
+	const auto info = QFileInfo(file);
+	return (info.isFile() && !info.isSymLink()
 		&& file.open(QIODevice::ReadOnly | QIODevice::ExistingOnly))
 		? Identity(file)
 		: QByteArray();
 }
 
-bool Flush(QFileDevice &file) {
+bool FlushFile(QFileDevice &file) {
 	if (!file.flush() || file.handle() < 0) {
 		return false;
 	}
@@ -97,7 +101,7 @@ bool PublishFile(const QString &from, const QString &to, bool replace) {
 	const auto source = QDir::toNativeSeparators(from).toStdWString();
 	const auto target = QDir::toNativeSeparators(to).toStdWString();
 	return MoveFileExW(source.c_str(), target.c_str(),
-		replace ? MOVEFILE_REPLACE_EXISTING : 0) != 0;
+		MOVEFILE_WRITE_THROUGH | (replace ? MOVEFILE_REPLACE_EXISTING : 0)) != 0;
 #else
 	const auto source = QFile::encodeName(from);
 	const auto target = QFile::encodeName(to);
@@ -113,6 +117,61 @@ bool PublishFile(const QString &from, const QString &to, bool replace) {
 }
 
 } // namespace
+
+bool FlushPersistentDownloadFile(QFileDevice &file) {
+	return FlushFile(file);
+}
+
+bool SafePersistentDownloadPath(const QString &path) {
+	auto current = QFileInfo(path).absoluteFilePath();
+	while (true) {
+		const auto info = QFileInfo(current);
+		if (info.isSymLink()) {
+			return false;
+		}
+#ifdef Q_OS_WIN
+		const auto native = QDir::toNativeSeparators(current).toStdWString();
+		const auto attributes = GetFileAttributesW(native.c_str());
+		if (attributes != INVALID_FILE_ATTRIBUTES
+			&& (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+			return false;
+		}
+#endif
+		const auto parent = info.absolutePath();
+		if (current == parent) {
+			return true;
+		}
+		current = parent;
+	}
+}
+
+bool PersistentDownloadPathMissing(const QString &path) {
+#ifdef Q_OS_WIN
+	const auto native = QDir::toNativeSeparators(path).toStdWString();
+	if (GetFileAttributesW(native.c_str()) != INVALID_FILE_ATTRIBUTES) {
+		return false;
+	}
+	const auto error = GetLastError();
+	return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+#else
+	struct stat info = {};
+	return lstat(QFile::encodeName(path).constData(), &info) != 0 && errno == ENOENT;
+#endif
+}
+
+bool FitsPersistentDownloadField(QDataStream &stream, quint32 limit, bool bitCount) {
+	const auto device = stream.device();
+	const auto header = device->peek(sizeof(quint32));
+	if (stream.status() != QDataStream::Ok || header.size() != sizeof(quint32)) {
+		return false;
+	}
+	const auto length = qFromBigEndian<quint32>(header.constData());
+	if (!bitCount && length == 0xFFFFFFFFU) {
+		return true;
+	}
+	const auto bytes = bitCount ? ((quint64(length) + 7) / 8) : quint64(length);
+	return length <= limit && device->bytesAvailable() >= qint64(bytes + header.size());
+}
 
 void PersistentDownloadRequests::reset(QBitArray committed) {
 	_committed = std::move(committed);
@@ -168,11 +227,23 @@ PersistentFileSink::PersistentFileSink(Job job, std::unique_ptr<QFile> file)
 	_file->setFileName(_stagingPath);
 }
 
-auto PersistentFileSink::open(bool resume) -> Result {
+auto PersistentFileSink::open(
+		bool resume,
+		QByteArrayView expectedIdentity,
+		bool deferCheckpoint,
+		bool allowEmptyRecovery) -> Result {
 	if (_job.id.isNull() || !QFileInfo(_job.destination).isAbsolute()
 		|| _job.size <= 0 || _job.size > kMaximumSize || _published
 		|| _file->isOpen()) {
 		return Result::InvalidJob;
+	}
+	if (!SafePersistentDownloadPath(_stagingPath)
+		|| !SafePersistentDownloadPath(checkpointPath())
+		|| !SafePersistentDownloadPath(_job.destination)) {
+		return Result::Replaced;
+	}
+	if (!resume && !PersistentDownloadPathMissing(checkpointPath())) {
+		return Result::Replaced;
 	}
 	if (!resume) {
 		_destinationIdentity.clear();
@@ -196,28 +267,30 @@ auto PersistentFileSink::open(bool resume) -> Result {
 	}
 	const auto identity = Identity(*_file);
 	auto result = Result::Ok;
-	if (identity.isEmpty()) {
+	if (identity.isEmpty() || (!expectedIdentity.isEmpty()
+		&& identity != expectedIdentity)) {
 		result = Result::Replaced;
 	} else if (resume) {
 		auto previousIdentity = std::exchange(_identity, identity);
 		result = readCheckpoint();
+		if (result == Result::InvalidCheckpoint && allowEmptyRecovery
+			&& !expectedIdentity.isEmpty()
+			&& PersistentDownloadPathMissing(checkpointPath()) && !_file->size()) {
+			_destinationIdentity.clear();
+			initializeCoverage();
+			result = checkpoint();
+		}
 		if (result != Result::Ok) {
 			_identity = std::move(previousIdentity);
 		}
 	} else {
-		const auto parts = (_job.size + kPersistentDownloadPartSize - 1)
-			/ kPersistentDownloadPartSize;
 		_identity = identity;
-		_written = QBitArray(parts);
-		_committed = QBitArray(parts);
-		_digests = QByteArray(parts * kDigestSize, '\0');
-		_writtenSize = 0;
-		_pendingBytes = 0;
-		_created = true;
-		_checkpointDirty = true;
-		result = checkpoint();
-		if (result != Result::Ok && cancel() == Result::Ok) {
-			_checkpointDirty = false;
+		initializeCoverage();
+		if (!deferCheckpoint) {
+			result = checkpoint();
+			if (result != Result::Ok && cancel() == Result::Ok) {
+				_checkpointDirty = false;
+			}
 		}
 	}
 	if (result != Result::Ok) {
@@ -227,6 +300,22 @@ auto PersistentFileSink::open(bool resume) -> Result {
 		log(resume ? "reopened" : "created");
 	}
 	return result;
+}
+
+void PersistentFileSink::initializeCoverage() {
+	const auto parts = (_job.size + kPersistentDownloadPartSize - 1)
+		/ kPersistentDownloadPartSize;
+	_written = QBitArray(parts);
+	_committed = QBitArray(parts);
+	_digests = QByteArray(parts * kDigestSize, '\0');
+	_writtenSize = 0;
+	_pendingBytes = 0;
+	_created = true;
+	_checkpointDirty = true;
+}
+
+const QByteArray &PersistentFileSink::identity() const {
+	return _identity;
 }
 
 auto PersistentFileSink::partLength(qsizetype index) const -> qint64 {
@@ -266,7 +355,7 @@ auto PersistentFileSink::checkpoint() -> Result {
 	if (!_checkpointDirty) {
 		return Result::Ok;
 	}
-	if (!_file->isOpen() || !ownsStaging() || !Flush(*_file)) {
+	if (!_file->isOpen() || !ownsStaging() || !FlushFile(*_file)) {
 		log("data flush failed");
 		return Result::CheckpointFailed;
 	}
@@ -280,9 +369,11 @@ auto PersistentFileSink::checkpoint() -> Result {
 	const auto digest = Digest(body);
 	auto file = QSaveFile(checkpointPath());
 	file.setDirectWriteFallback(false);
-	if (stream.status() != QDataStream::Ok || !file.open(QIODevice::WriteOnly)
+	if (stream.status() != QDataStream::Ok
+		|| !SafePersistentDownloadPath(checkpointPath())
+		|| !file.open(QIODevice::WriteOnly)
 		|| file.write(body) != body.size() || file.write(digest) != digest.size()
-		|| !Flush(file) || !file.commit()) {
+		|| !FlushFile(file) || !file.commit()) {
 		log("checkpoint failed");
 		return Result::CheckpointFailed;
 	}
@@ -293,9 +384,10 @@ auto PersistentFileSink::checkpoint() -> Result {
 	return Result::Ok;
 }
 
-auto PersistentFileSink::readCheckpoint() -> Result {
+auto PersistentFileSink::readCheckpoint(bool verify) -> Result {
 	auto file = QFile(checkpointPath());
-	if (QFileInfo(file).isSymLink() || !file.open(QIODevice::ReadOnly)
+	if (!SafePersistentDownloadPath(checkpointPath()) || !QFileInfo(file).isFile()
+		|| !file.open(QIODevice::ReadOnly | QIODevice::ExistingOnly)
 		|| file.size() <= kDigestSize || file.size() > kMaximumCheckpoint) {
 		return Result::InvalidCheckpoint;
 	}
@@ -319,10 +411,29 @@ auto PersistentFileSink::readCheckpoint() -> Result {
 	auto destinationIdentity = QByteArray();
 	auto bitmap = QBitArray();
 	auto digests = QByteArray();
-	stream >> magic >> version >> id >> size >> part >> destination
-		>> identity >> destinationIdentity >> bitmap >> digests;
 	const auto parts = (_job.size + kPersistentDownloadPartSize - 1)
 		/ kPersistentDownloadPartSize;
+	stream >> magic >> version >> id >> size >> part;
+	if (!FitsPersistentDownloadField(stream, kDigestSize)) {
+		return Result::InvalidCheckpoint;
+	}
+	stream >> destination;
+	if (!FitsPersistentDownloadField(stream, 24)) {
+		return Result::InvalidCheckpoint;
+	}
+	stream >> identity;
+	if (!FitsPersistentDownloadField(stream, 24)) {
+		return Result::InvalidCheckpoint;
+	}
+	stream >> destinationIdentity;
+	if (!FitsPersistentDownloadField(stream, quint32(parts), true)) {
+		return Result::InvalidCheckpoint;
+	}
+	stream >> bitmap;
+	if (!FitsPersistentDownloadField(stream, quint32(parts * kDigestSize))) {
+		return Result::InvalidCheckpoint;
+	}
+	stream >> digests;
 	if (stream.status() != QDataStream::Ok || !stream.atEnd()
 		|| magic != kMagic || version != kVersion || id != _job.id
 		|| size != _job.size || part != kPersistentDownloadPartSize
@@ -334,6 +445,9 @@ auto PersistentFileSink::readCheckpoint() -> Result {
 	}
 	if (identity != _identity) {
 		return Result::Replaced;
+	}
+	if (!verify) {
+		return Result::Ok;
 	}
 	_destinationIdentity = std::move(destinationIdentity);
 	_writtenSize = 0;
@@ -372,15 +486,20 @@ bool PersistentFileSink::ownsStaging() const {
 	return !_identity.isEmpty() && PathIdentity(_stagingPath) == _identity;
 }
 
-auto PersistentFileSink::publish() -> Result {
+auto PersistentFileSink::preparePublish() -> Result {
 	if (!_file->isOpen() || _writtenSize != _job.size
 		|| _written.count(true) != _written.size() || _file->size() != _job.size) {
 		return Result::Incomplete;
 	}
-	if (const auto result = checkpoint(); result != Result::Ok) {
+	return checkpoint();
+}
+
+auto PersistentFileSink::publish(bool keepCheckpoint) -> Result {
+	if (const auto result = preparePublish(); result != Result::Ok) {
 		return result;
 	}
-	if (!ownsStaging()) {
+	if (!SafePersistentDownloadPath(_stagingPath)
+		|| !SafePersistentDownloadPath(_job.destination) || !ownsStaging()) {
 		return Result::Replaced;
 	}
 	const auto replace = !_destinationIdentity.isEmpty();
@@ -392,10 +511,75 @@ auto PersistentFileSink::publish() -> Result {
 		return Result::PublishFailed;
 	}
 	_published = true;
-	log(QFile::remove(checkpointPath())
+	log((keepCheckpoint || QFile::remove(checkpointPath()))
 		? "published"
 		: "published, checkpoint cleanup failed");
 	return Result::Ok;
+}
+
+auto PersistentFileSink::inspectPublished(QByteArrayView expectedIdentity)
+-> Result {
+	if (expectedIdentity.isEmpty() || _file->isOpen()
+		|| !SafePersistentDownloadPath(_job.destination)
+		|| !SafePersistentDownloadPath(checkpointPath())) {
+		return Result::Replaced;
+	}
+	_file->setFileName(_job.destination);
+	const auto restore = qScopeGuard([&] {
+		_file->close();
+		_file->setFileName(_stagingPath);
+	});
+	if (!QFileInfo(_job.destination).isFile()) {
+		return PersistentDownloadPathMissing(_job.destination)
+			? Result::Missing : Result::Replaced;
+	}
+	if (!_file->open(QIODevice::ReadOnly | QIODevice::ExistingOnly)) {
+		return QFileInfo::exists(_job.destination) ? Result::WriteFailed : Result::Missing;
+	}
+	_identity = Identity(*_file);
+	if (_identity != expectedIdentity) {
+		return Result::Replaced;
+	}
+	const auto result = readCheckpoint();
+	if (result != Result::Ok) {
+		return result;
+	}
+	return (_writtenSize == _job.size && _file->size() == _job.size)
+		? Result::Ok
+		: Result::Incomplete;
+}
+
+bool PersistentFileSink::matchesPublished(QByteArrayView expectedIdentity) const {
+	return !expectedIdentity.isEmpty()
+		&& SafePersistentDownloadPath(_job.destination)
+		&& PathIdentity(_job.destination) == expectedIdentity
+		&& QFileInfo(_job.destination).size() == _job.size;
+}
+
+bool PersistentFileSink::removePublishedCheckpoint() {
+	if (PersistentDownloadPathMissing(checkpointPath())) {
+		return true;
+	}
+	return SafePersistentDownloadPath(checkpointPath())
+		&& readCheckpoint(false) == Result::Ok
+		&& QFile::remove(checkpointPath());
+}
+
+auto PersistentFileSink::purge(QByteArrayView expectedIdentity) -> Result {
+	if (!SafePersistentDownloadPath(_stagingPath)
+		|| !SafePersistentDownloadPath(checkpointPath())
+		|| !QFileInfo(_stagingPath).absoluteDir().exists()) {
+		return Result::RemoveFailed;
+	}
+	if (expectedIdentity.isEmpty()) {
+		return (PersistentDownloadPathMissing(_stagingPath)
+			&& PersistentDownloadPathMissing(checkpointPath()))
+			? Result::Ok
+			: Result::Replaced;
+	}
+	_identity = expectedIdentity.toByteArray();
+	_created = true;
+	return cancel();
 }
 
 auto PersistentFileSink::cancel() -> Result {
@@ -403,15 +587,15 @@ auto PersistentFileSink::cancel() -> Result {
 	if (!_created || _published) {
 		return Result::Ok;
 	}
-	if (QFileInfo::exists(_stagingPath)) {
-		if (!ownsStaging()) {
+	if (!PersistentDownloadPathMissing(_stagingPath)) {
+		if (!SafePersistentDownloadPath(_stagingPath) || !ownsStaging()) {
 			return Result::Replaced;
 		}
 		if (!QFile::remove(_stagingPath)) {
 			return Result::RemoveFailed;
 		}
 	}
-	if (QFileInfo::exists(checkpointPath()) && !QFile::remove(checkpointPath())) {
+	if (!removePublishedCheckpoint()) {
 		return Result::RemoveFailed;
 	}
 	_created = false;
@@ -436,9 +620,11 @@ QString PersistentFileSink::checkpointPath() const {
 }
 
 void PersistentFileSink::log(const char *action) const {
-	qInfo() << "Persistent download" << _job.id << action
-		<< "committed" << _committed.count(true)
-		<< "missing" << (_committed.size() - _committed.count(true));
+	if (qEnvironmentVariableIntValue("TDESKTOP_PERSISTENT_DOWNLOAD_TRACE") == 1) {
+		qInfo() << "Persistent download" << _job.id << action
+			<< "committed" << _committed.count(true)
+			<< "missing" << (_committed.size() - _committed.count(true));
+	}
 }
 
 } // namespace Storage

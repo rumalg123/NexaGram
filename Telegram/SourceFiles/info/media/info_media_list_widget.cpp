@@ -1565,7 +1565,26 @@ void ListWidget::showContextMenu(
 	const auto externalState = _controller->isDownloads()
 		? Core::App().downloadManager().loadingExternalState(item)
 		: std::optional<ExternalState>();
-	if (externalState && !externalState->done) {
+	if (externalState && Core::App().downloadManager().pendingRow(item)) {
+		if (Core::App().downloadManager().pendingRowCanResume(item)) {
+			_contextMenu->addAction(
+				u"Resume download"_q,
+				[globalId] {
+					if (const auto item = MessageByGlobalId(globalId)) {
+						Core::App().downloadManager().resumePendingRow(item);
+					}
+				},
+				&st::menuIconDownload);
+		}
+		_contextMenu->addAction(
+			tr::lng_context_cancel_download(tr::now),
+			[globalId] {
+				if (const auto item = MessageByGlobalId(globalId)) {
+					Core::App().downloadManager().cancelPendingRow(item);
+				}
+			},
+			&st::menuIconCancel);
+	} else if (externalState && !externalState->done) {
 		_contextMenu->addAction(
 			tr::lng_context_cancel_download(tr::now),
 			[globalId] {

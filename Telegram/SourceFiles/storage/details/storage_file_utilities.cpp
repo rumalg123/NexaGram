@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/details/storage_file_utilities.h"
 
+#include "storage/persistent_file_sink.h"
+
 #include "core/version.h"
 #include "mtproto/mtproto_auth_key.h"
 #include "base/platform/base_platform_file_utilities.h"
@@ -72,6 +74,7 @@ struct WriteEntry {
 	QString base;
 	QByteArray data;
 	QByteArray md5;
+	bool atomicOnly = false;
 };
 
 struct RemoveEntry {
@@ -204,6 +207,11 @@ bool WriteManager::writeNow(WriteEntry &&entry) {
 	const auto simple = path('0');
 	const auto backup = path('1');
 	QSaveFile save;
+	if (entry.atomicOnly) {
+		save.setDirectWriteFallback(false);
+		return open(save, 's') && write(save)
+			&& FlushPersistentDownloadFile(save) && save.commit();
+	}
 	if (open(save, 's')) {
 		const auto written = write(save);
 		if (save.commit()) {
@@ -293,10 +301,9 @@ bool WriteManager::writeHeader(const QString &basePath, QFileDevice &file) {
 			return false;
 		}
 	}
-	file.write(TdfMagic, TdfMagicLen);
 	const auto version = qint32(AppVersion);
-	file.write((const char*)&version, sizeof(version));
-	return true;
+	return file.write(TdfMagic, TdfMagicLen) == TdfMagicLen
+		&& file.write((const char*)&version, sizeof(version)) == sizeof(version);
 }
 
 QString WriteManager::path(const WriteEntry &entry, char postfix) const {
@@ -657,16 +664,19 @@ void EncryptedDescriptor::finish() {
 FileWriteDescriptor::FileWriteDescriptor(
 	const FileKey &key,
 	const QString &basePath,
-	bool sync)
-: FileWriteDescriptor(ToFilePart(key), basePath, sync) {
+	bool sync,
+	bool atomicOnly)
+: FileWriteDescriptor(ToFilePart(key), basePath, sync, atomicOnly) {
 }
 
 FileWriteDescriptor::FileWriteDescriptor(
 	const QString &name,
 	const QString &basePath,
-	bool sync)
+	bool sync,
+	bool atomicOnly)
 : _basePath(basePath)
-, _sync(sync) {
+, _sync(sync || atomicOnly)
+, _atomicOnly(atomicOnly) {
 	init(name);
 }
 
@@ -719,7 +729,8 @@ bool FileWriteDescriptor::finish() {
 		.basePath = _basePath,
 		.base = _base,
 		.data = _safeData,
-		.md5 = QByteArray((const char*)_md5.result(), 0x10)
+		.md5 = QByteArray((const char*)_md5.result(), 0x10),
+		.atomicOnly = _atomicOnly,
 	};
 	if (_sync) {
 		_result = Manager.writeSync(std::move(entry));

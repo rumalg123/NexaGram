@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/file_download_mtproto.h"
 
 #include "data/data_document.h"
+#include "data/data_download_manager.h"
+#include "core/application.h"
 #include "data/data_file_origin.h"
 #include "storage/cache/storage_cache_types.h"
 #include "main/main_session.h"
@@ -27,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace {
 
 using Sink = Storage::PersistentFileSink;
+using PendingState = Storage::PendingDownloadState;
 
 constexpr auto kCheckpointInterval = 2 * crl::time(1000);
 constexpr auto kMaximumPendingParts = 128;
@@ -45,12 +48,14 @@ struct mtpFileLoader::Persistent {
 		Publishing,
 	};
 
-	explicit Persistent(Sink::Job job, Fn<void()> checkpoint)
-	: id(job.id)
-	, worker(std::move(job))
+	explicit Persistent(Storage::PendingDownload record, Fn<void()> checkpoint)
+	: job(std::move(record))
+	, id(job.file.id)
+	, worker(Sink::Job(job.file))
 	, timer(std::move(checkpoint)) {
 	}
 
+	Storage::PendingDownload job;
 	const QUuid id;
 	const bool trace = qEnvironmentVariableIntValue(
 		"TDESKTOP_PERSISTENT_DOWNLOAD_TRACE") == 1;
@@ -61,7 +66,6 @@ struct mtpFileLoader::Persistent {
 	State state = State::Idle;
 	Storage::PersistentDownloadRequests requests;
 	int64 ready = 0;
-	bool opened = false;
 	bool checkpointQueued = false;
 };
 
@@ -183,11 +187,15 @@ mtpFileLoader::~mtpFileLoader() {
 	_finished = true;
 }
 
-void mtpFileLoader::enablePersistent(bool replace) {
+void mtpFileLoader::enablePersistent(Storage::PendingDownload job) {
 	Expects(!_persistent && !_fileIsOpen && _toCache == LoadToFileOnly);
 	_persistent = std::make_unique<Persistent>(
-		Sink::Job{ QUuid::createUuid(), _filename, _fullSize, replace },
+		std::move(job),
 		[=] { checkpointPersistent(); });
+}
+
+QUuid mtpFileLoader::persistentId() const {
+	return _persistent ? _persistent->id : QUuid();
 }
 
 bool mtpFileLoader::checkForOpen() {
@@ -198,8 +206,12 @@ int64 mtpFileLoader::currentOffset() const {
 	return _persistent ? _persistent->ready : FileLoader::currentOffset();
 }
 
-bool mtpFileLoader::canCancel() const {
-	return !_persistent || _persistent->state != Persistent::State::Publishing;
+bool mtpFileLoader::canCancel() {
+	return !_persistent || (_persistent->state != Persistent::State::Publishing
+		&& Core::App().downloadManager().updatePending(
+			&session(),
+			_persistent->id,
+			PendingState::Cancelling));
 }
 
 bool mtpFileLoader::persistentCanSuspend() const {
@@ -215,10 +227,19 @@ bool mtpFileLoader::persistentCanResume() const {
 		|| _persistent->state == Persistent::State::Failed);
 }
 
-void mtpFileLoader::resumePersistent() {
+void mtpFileLoader::resumePersistent(const QByteArray &reference) {
 	if (persistentCanResume()) {
-		openPersistent(_persistent->opened);
+		updateFileReference(reference);
+		openPersistent(!_persistent->job.stagingIdentity.isEmpty());
 	}
+}
+
+void mtpFileLoader::stopPersistentForUnavailableSource() {
+	if (!_persistent || _persistent->state == Persistent::State::Publishing) {
+		return;
+	}
+	_persistent->job.state = PendingState::Unavailable;
+	failPersistent(Sink::Result::TransferFailed);
 }
 
 void mtpFileLoader::openPersistent(bool resume) {
@@ -228,42 +249,107 @@ void mtpFileLoader::openPersistent(bool resume) {
 	const auto generation = state.requests.generation();
 	auto done = crl::guard(static_cast<FileLoader*>(this), [=](
 			Sink::Result result,
+			QByteArray identity,
 			QBitArray present,
 			int64 size) {
 		if (generation != _persistent->requests.generation()) {
 			return;
 		}
-		if (result != Sink::Result::Ok) {
-			failPersistent(result);
+		if (result != Sink::Result::Ok || resume) {
+			persistentOpened(result, std::move(present), size);
 			return;
 		}
 		auto &state = *_persistent;
-		state.opened = true;
-		state.requests.reset(std::move(present));
-		state.ready = size;
-		state.state = Persistent::State::Running;
-		state.timer.callEach(kCheckpointInterval);
-		const auto weak = base::make_weak(static_cast<FileLoader*>(this));
-		notifyAboutProgress();
-		if (!weak) {
+		auto &manager = Core::App().downloadManager();
+		if (!manager.identifyPending(&session(), state.id, identity)) {
+			state.worker.with([](Sink &sink) {
+				const auto result = sink.cancel();
+				Storage::TracePendingDownload({}, "unregistered staging cleanup", int(result));
+			});
+			failPersistent(Sink::Result::CheckpointFailed);
 			return;
 		}
-		if (size == _fullSize && persistentCanSuspend()) {
-			publishPersistent();
-		} else if (persistentCanSuspend()) {
-			addToQueue();
-		}
+		state.job.stagingIdentity = std::move(identity);
+		auto checkpointed = crl::guard(static_cast<FileLoader*>(this), [=](
+				Sink::Result result,
+				QBitArray present) {
+			if (generation == _persistent->requests.generation()) {
+				persistentOpened(result, std::move(present), 0);
+			}
+		});
+		state.worker.with([=, cancelled = state.cancelled](Sink &sink) mutable {
+			if (cancelled->load()) {
+				return;
+			}
+			const auto result = sink.checkpoint();
+			crl::on_main([checkpointed = std::move(checkpointed), result,
+					present = sink.committed()]() mutable {
+				checkpointed(result, std::move(present));
+			});
+		});
 	});
-	state.worker.with([=, cancelled = state.cancelled](Sink &sink) mutable {
+	state.worker.with([=, cancelled = state.cancelled,
+			identity = state.job.stagingIdentity,
+			initializing = state.job.state == PendingState::Initializing](Sink &sink) mutable {
 		if (cancelled->load()) {
 			return;
 		}
-		const auto result = sink.open(resume);
-		crl::on_main([done = std::move(done), result,
+		const auto result = sink.open(resume, identity, !resume, initializing);
+		crl::on_main([done = std::move(done), result, identity = sink.identity(),
 				present = sink.committed(), size = sink.writtenSize()]() mutable {
-			done(result, std::move(present), size);
+			done(result, std::move(identity), std::move(present), size);
 		});
 	});
+}
+
+void mtpFileLoader::persistentOpened(
+		Sink::Result result,
+		QBitArray present,
+		int64 size) {
+	if (result != Sink::Result::Ok) {
+		failPersistent(result);
+		return;
+	}
+	auto &state = *_persistent;
+	if (!Core::App().downloadManager().updatePending(
+			&session(), state.id, PendingState::Downloading)) {
+		failPersistent(Sink::Result::CheckpointFailed);
+		return;
+	}
+	state.job.state = PendingState::Downloading;
+	if (state.trace && present.count(true) > 0) {
+		for (auto first = qsizetype(0); first < present.size();) {
+			if (!present.testBit(first)) {
+				++first;
+				continue;
+			}
+			auto end = first + 1;
+			while (end < present.size() && present.testBit(end)) {
+				++end;
+			}
+			qInfo() << "Persistent download" << state.id << "committed offsets"
+				<< first * int64(Storage::kDownloadPartSize)
+				<< (end - 1) * int64(Storage::kDownloadPartSize);
+			first = end;
+		}
+	}
+	state.requests.reset(std::move(present));
+	state.ready = size;
+	state.state = Persistent::State::Running;
+	if (Core::Quitting()) {
+		suspendPersistent(false);
+		return;
+	}
+	state.timer.callEach(kCheckpointInterval);
+	const auto weak = base::make_weak(static_cast<FileLoader*>(this));
+	notifyAboutProgress();
+	if (weak && persistentCanSuspend()) {
+		if (size == _fullSize) {
+			publishPersistent();
+		} else {
+			addToQueue();
+		}
+	}
 }
 
 void mtpFileLoader::stopPersistentRequests() {
@@ -276,20 +362,38 @@ void mtpFileLoader::stopPersistentRequests() {
 	session().downloader().checkSendNextAfterSuccess(dcId());
 }
 
-void mtpFileLoader::suspendPersistent() {
+void mtpFileLoader::suspendPersistent(bool manual, Fn<void()> finished) {
 	if (!persistentCanSuspend()) {
+		if (finished) {
+			finished();
+		}
 		return;
 	}
 	auto &state = *_persistent;
+	const auto intent = manual ? PendingState::Paused : PendingState::Interrupted;
+	const auto saved = Core::App().downloadManager().updatePending(&session(), state.id, intent);
+	if (!saved && manual) {
+		if (finished) {
+			finished();
+		}
+		return;
+	}
+	if (saved) {
+		state.job.state = intent;
+	}
 	state.state = Persistent::State::Suspending;
 	stopPersistentRequests();
 	const auto generation = state.requests.generation();
-	auto done = crl::guard(static_cast<FileLoader*>(this), [=](
+	auto done = crl::guard(static_cast<FileLoader*>(this), [=, finished = std::move(finished)](
 			Sink::Result result,
 			int64 size) {
+		if (finished) {
+			finished();
+		}
 		if (_persistent->requests.generation() != generation) {
 			return;
 		}
+		Storage::TracePendingDownload(_persistent->id, "suspend checkpoint", int(result));
 		_persistent->ready = size;
 		_persistent->state = (result == Sink::Result::Ok)
 			? Persistent::State::Suspended
@@ -337,8 +441,18 @@ void mtpFileLoader::checkpointPersistent() {
 
 void mtpFileLoader::failPersistent(Sink::Result result) {
 	auto &state = *_persistent;
-	state.state = Persistent::State::Failed;
 	stopPersistentRequests();
+	state.state = Persistent::State::Failed;
+	auto &manager = Core::App().downloadManager();
+	const auto retry = (state.job.state == PendingState::Initializing
+		|| state.job.state == PendingState::Paused
+		|| state.job.state == PendingState::Unavailable
+		|| state.job.state == PendingState::Finalizing)
+		? state.job.state
+		: PendingState::Retryable;
+	if (!manager.updatePending(&session(), state.id, retry)) {
+		Storage::TracePendingDownload(state.id, "retry state write failed");
+	}
 	state.worker.with([cancelled = state.cancelled](Sink &sink) {
 		if (!cancelled->load()) {
 			const auto result = sink.suspend();
@@ -356,18 +470,40 @@ void mtpFileLoader::publishPersistent() {
 	auto &state = *_persistent;
 	state.state = Persistent::State::Publishing;
 	stopPersistentRequests();
-	auto done = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result) {
-		if (result != Sink::Result::Ok) {
-			failPersistent(result);
+	auto prepared = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result) {
+		if (result != Sink::Result::Ok
+			|| !Core::App().downloadManager().updatePending(
+				&session(), _persistent->id, PendingState::Finalizing)) {
+			failPersistent(result == Sink::Result::Ok
+				? Sink::Result::CheckpointFailed : result);
 			return;
 		}
-		Platform::File::PostprocessDownloaded(QFileInfo(_filename).absoluteFilePath());
-		finalizeResult();
+		_persistent->job.state = PendingState::Finalizing;
+		auto published = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result) {
+			if (result != Sink::Result::Ok) {
+				failPersistent(result);
+				return;
+			}
+			Platform::File::PostprocessDownloaded(QFileInfo(_filename).absoluteFilePath());
+			const auto strong = base::make_weak(&session());
+			const auto id = _persistent->id;
+			if (finalizeResult()) {
+				if (const auto session = strong.get()) {
+					Core::App().downloadManager().completePending(session, id);
+				}
+			}
+		});
+		_persistent->worker.with([published = std::move(published)](Sink &sink) mutable {
+			const auto result = sink.publish(true);
+			crl::on_main([published = std::move(published), result]() mutable {
+				published(result);
+			});
+		});
 	});
-	state.worker.with([done = std::move(done)](Sink &sink) mutable {
-		const auto result = sink.publish();
-		crl::on_main([done = std::move(done), result]() mutable {
-			done(result);
+	state.worker.with([prepared = std::move(prepared)](Sink &sink) mutable {
+		const auto result = sink.preparePublish();
+		crl::on_main([prepared = std::move(prepared), result]() mutable {
+			prepared(result);
 		});
 	});
 }
@@ -504,7 +640,7 @@ bool mtpFileLoader::setWebFileSizeHook(int64 size) {
 void mtpFileLoader::startLoading() {
 	if (_persistent) {
 		if (_persistent->state == Persistent::State::Idle) {
-			openPersistent(false);
+			openPersistent(!_persistent->job.stagingIdentity.isEmpty());
 		}
 		return;
 	}
@@ -530,11 +666,17 @@ void mtpFileLoader::cancelHook() {
 		state.state = Persistent::State::Failed;
 		state.cancelled->store(true);
 		stopPersistentRequests();
-		state.worker.with([id = state.id](Sink &sink) {
-			const auto result = sink.cancel();
-			if (result != Sink::Result::Ok) {
-				qInfo() << "Persistent download" << id << "cleanup failed" << int(result);
-			}
+		auto done = crl::guard(&session(), [session = &session(), id = state.id](
+				Sink::Result result) {
+			Core::App().downloadManager().pendingCancelled(session, id, result);
+		});
+		state.worker.with([id = state.id, identity = state.job.stagingIdentity,
+				done = std::move(done)](Sink &sink) mutable {
+			const auto result = identity.isEmpty() ? sink.cancel() : sink.purge(identity);
+			Storage::TracePendingDownload(id, "cancel cleanup", int(result));
+			crl::on_main([done = std::move(done), result]() mutable {
+				done(result);
+			});
 		});
 		return;
 	}

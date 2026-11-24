@@ -8,6 +8,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/timer.h"
+#include "base/weak_ptr.h"
+#include "storage/pending_downloads.h"
+
+#include <atomic>
 
 namespace Ui {
 struct DownloadBarProgress;
@@ -76,7 +80,7 @@ struct DownloadingId {
 	bool done = false;
 };
 
-class DownloadManager final {
+class DownloadManager final : public base::has_weak_ptr {
 public:
 	DownloadManager();
 	~DownloadManager();
@@ -84,6 +88,27 @@ public:
 	[[nodiscard]] bool empty() const;
 
 	void trackSession(not_null<Main::Session*> session);
+	[[nodiscard]] std::optional<Storage::PendingDownload> reservePending(
+		not_null<DocumentData*> document,
+		FullMsgId origin,
+		const QString &destination,
+		bool replace);
+	[[nodiscard]] bool resumePending(not_null<DocumentData*> document, FullMsgId origin);
+	[[nodiscard]] bool identifyPending(
+		not_null<Main::Session*> session, const QUuid &id, QByteArray identity);
+	[[nodiscard]] bool updatePending(
+		not_null<Main::Session*> session, const QUuid &id, Storage::PendingDownloadState state);
+	void completePending(not_null<Main::Session*> session, const QUuid &id);
+	void pendingCancelled(
+		not_null<Main::Session*> session, const QUuid &id,
+		Storage::PersistentFileSink::Result result);
+	[[nodiscard]] bool pendingRow(not_null<const HistoryItem*> item) const;
+	[[nodiscard]] bool pendingRowCanResume(not_null<const HistoryItem*> item) const;
+	[[nodiscard]] QString pendingRowStatus(not_null<const HistoryItem*> item) const;
+	void resumePendingRow(not_null<const HistoryItem*> item);
+	void cancelPendingRow(not_null<const HistoryItem*> item);
+	[[nodiscard]] bool persistentQuitPending();
+	void retirePending(not_null<Main::Session*> session);
 	void itemVisibilitiesUpdated(not_null<Main::Session*> session);
 
 	[[nodiscard]] DownloadDate computeNextStartDate();
@@ -146,7 +171,19 @@ public:
 
 private:
 	struct DeleteFilesDescriptor;
+	struct PendingRuntime {
+		HistoryItem *row = nullptr;
+		DocumentData *active = nullptr;
+		std::shared_ptr<std::atomic<bool>> stopPublication;
+		bool inspected = false;
+		bool inspectionFailed = false;
+		bool resolve = false;
+		bool start = false;
+	};
 	struct SessionData {
+		Storage::PendingDownloadList pending;
+		base::flat_map<QUuid, PendingRuntime> pendingRuntime;
+		bool pendingReady = false;
 		std::vector<DownloadedId> downloaded;
 		std::vector<DownloadingId> downloading;
 		int resolveNeeded = 0;
@@ -155,6 +192,25 @@ private:
 		rpl::lifetime lifetime;
 	};
 
+	void loadPending(not_null<Main::Session*> session);
+	void scanPending();
+	void resolvePending();
+	void publishRecoveredPending(
+		not_null<Main::Session*> session,
+		const Storage::PendingDownload &job);
+	void requestPending(not_null<Main::Session*> session, const QUuid &id);
+	void cancelPending(not_null<Main::Session*> session, const QUuid &id);
+	void erasePending(not_null<Main::Session*> session, const QUuid &id);
+	void pendingSourceRemoved(SessionData &data, std::vector<DownloadingId>::iterator i);
+	void showPendingRow(not_null<Main::Session*> session, const Storage::PendingDownload &job);
+	void hidePendingRow(not_null<Main::Session*> session, const QUuid &id);
+	[[nodiscard]] bool savePending(
+		not_null<Main::Session*> session, Storage::PendingDownloadList changed);
+	[[nodiscard]] const Storage::PendingDownload *findPending(
+		not_null<Main::Session*> session, const QUuid &id) const;
+	[[nodiscard]] bool hasCompletedPending(
+		not_null<Main::Session*> session, const Storage::PendingDownload &job) const;
+	[[nodiscard]] QUuid pendingRowId(not_null<const HistoryItem*> item) const;
 	void check(not_null<const HistoryItem*> item);
 	void check(not_null<DocumentData*> document);
 	void check(
@@ -227,6 +283,11 @@ private:
 	rpl::variable<bool> _loadedResolveDone;
 
 	base::Timer _clearLoadingTimer;
+	base::Timer _pendingQuitTimer;
+	bool _pendingScanBusy = false;
+	bool _pendingResolveBusy = false;
+	bool _pendingQuitting = false;
+	int _pendingQuitWorkers = 0;
 
 };
 
