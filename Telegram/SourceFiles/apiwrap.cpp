@@ -4173,7 +4173,9 @@ FullMsgId ApiWrap::forwardMessages(
 		};
 		histories.sendPreparedMessage(
 			history,
-			FullReplyTo{ .topicRootId = topicRootId },
+			(action.options.suggest
+				? action.replyTo
+				: FullReplyTo{ .topicRootId = topicRootId }),
 			uint64(0),
 			std::move(buildMessage),
 			[=](const MTPUpdates &result, const MTP::Response &) {
