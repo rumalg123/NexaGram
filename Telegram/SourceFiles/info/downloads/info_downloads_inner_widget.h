@@ -7,10 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "ui/rp_widget.h"
-#include "ui/widgets/scroll_area.h"
 #include "base/unique_qptr.h"
 #include "storage/download_presentation.h"
+#include "ui/widgets/scroll_area.h"
+#include "ui/rp_widget.h"
 
 namespace Ui {
 class VerticalLayout;

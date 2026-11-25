@@ -7,9 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "storage/persistent_file_loader.h"
-#include "storage/cache/storage_cache_types.h"
 #include "data/data_file_origin.h"
+#include "storage/cache/storage_cache_types.h"
+#include "storage/persistent_file_loader.h"
 
 namespace Media {
 namespace Streaming {

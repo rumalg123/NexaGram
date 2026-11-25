@@ -7,25 +7,25 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_file_click_handler.h"
 
-#include "data/data_file_origin.h"
-
-#include "core/click_handler_types.h"
-#include "core/file_utilities.h"
-#include "core/application.h"
-#include "core/core_settings.h"
-#include "core/core_download_settings.h"
 #include "boxes/abstract_box.h"
+#include "core/application.h"
+#include "core/click_handler_types.h"
+#include "core/core_download_settings.h"
+#include "core/core_settings.h"
+#include "core/file_utilities.h"
+#include "data/data_document.h"
+#include "data/data_document_resolver.h"
+#include "data/data_download_manager.h"
+#include "data/data_file_origin.h"
+#include "data/data_photo.h"
+#include "data/data_session.h"
 #include "lang/lang_keys.h"
+#include "main/main_session.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/layers/generic_box.h"
 #include "ui/layers/show.h"
+
 #include "styles/style_layers.h"
-#include "data/data_document.h"
-#include "data/data_document_resolver.h"
-#include "data/data_session.h"
-#include "data/data_download_manager.h"
-#include "data/data_photo.h"
-#include "main/main_session.h"
 
 FileClickHandler::FileClickHandler(FullMsgId context)
 : _context(context) {

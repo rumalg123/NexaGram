@@ -7,20 +7,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "editor/photo_editor_layer_widget.h"
 
-#include "lang/lang_keys.h"
-#include "ui/boxes/confirm_box.h" // InformBox
+#include "core/mime_type.h"
 #include "editor/editor_layer_widget.h"
 #include "editor/photo_editor.h"
-#include "core/mime_type.h"
+#include "lang/lang_keys.h"
 #include "storage/localimageloader.h"
 #include "storage/storage_media_prepare.h"
+#include "ui/boxes/confirm_box.h" // InformBox
 #include "ui/chat/attach/attach_prepare.h"
 #include "ui/layers/generic_box.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
 
-#include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QClipboard>
 
 namespace Editor {
 

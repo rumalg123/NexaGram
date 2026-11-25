@@ -7,12 +7,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "media/streaming/media_streaming_common.h"
-#include "media/streaming/media_streaming_loader.h"
-#include "media/streaming/media_streaming_download_attachment.h"
 #include "base/bytes.h"
-#include "base/weak_ptr.h"
 #include "base/thread_safe_wrap.h"
+#include "base/weak_ptr.h"
+#include "media/streaming/media_streaming_common.h"
+#include "media/streaming/media_streaming_download_attachment.h"
+#include "media/streaming/media_streaming_loader.h"
 
 #include <QtCore/QUuid>
 

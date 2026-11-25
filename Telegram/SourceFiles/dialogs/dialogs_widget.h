@@ -1,4 +1,4 @@
-﻿/*
+/*
 This file is part of Telegram Desktop,
 the official desktop application for the Telegram messaging service.
 
@@ -8,15 +8,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "api/api_peer_search.h"
-#include <array>
+#include "api/api_single_message_search.h"
 #include "base/timer.h"
 #include "dialogs/dialogs_key.h"
-#include "window/section_widget.h"
+#include "mtproto/sender.h"
 #include "ui/controls/swipe_handler_data.h"
 #include "ui/effects/animations.h"
 #include "ui/userpic_view.h"
-#include "mtproto/sender.h"
-#include "api/api_single_message_search.h"
+#include "window/section_widget.h"
+
+#include <array>
 
 class ChannelData;
 class QLabel;

@@ -7,8 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "storage/persistent_file_loader.h"
 #include "storage/download_manager_mtproto.h"
+#include "storage/persistent_file_loader.h"
 
 class mtpFileLoader final
 	: public Storage::PersistentFileLoader

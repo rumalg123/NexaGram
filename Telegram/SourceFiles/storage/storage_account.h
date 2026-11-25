@@ -7,12 +7,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "base/timer.h"
 #include "base/flags.h"
-#include "storage/cache/storage_cache_database.h"
-#include "storage/pending_downloads.h"
+#include "base/timer.h"
 #include "data/stickers/data_stickers_set.h"
 #include "data/data_drafts.h"
+#include "storage/cache/storage_cache_database.h"
+#include "storage/pending_downloads.h"
 #include "webview/webview_common.h"
 
 class History;
