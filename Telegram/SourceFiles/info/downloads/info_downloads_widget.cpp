@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "window/window_session_controller.h"
 #include "core/application.h"
+#include "core/core_download_settings.h"
 #include "lang/lang_keys.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
@@ -203,7 +204,9 @@ private:
 			+ middle + CountLabel(FilterText(Filter::Paused), paused)
 			+ middle + CountLabel(FilterText(Filter::Interrupted), interrupted)
 			+ middle + CountLabel(FilterText(Filter::Failed), failed);
-		if (rate > 0) {
+		if (!Core::App().downloadSettings().activation().enabled) {
+			_summaryText = tr::lng_downloads_resumable_disabled(tr::now);
+		} else if (rate > 0) {
 			_summaryText += middle + tr::lng_downloads_transfer_rate(
 				tr::now, lt_size, Ui::FormatSizeText(rate));
 		}
@@ -296,7 +299,8 @@ private:
 				}));
 			refresh(true);
 		});
-		if (action == Action::Cancel) {
+		if (action == Action::Cancel && Storage::ConfirmDownloadCancellation(
+			true, true, Core::App().downloadSettings().preferences().confirmCancellation)) {
 			_controller->parentController()->show(Ui::MakeConfirmBox({
 				.text = tr::lng_downloads_bulk_confirm(tr::now,
 					lt_count, ids.size(), lt_user, _controller->session().user()->name()),
@@ -366,18 +370,29 @@ Widget::Widget(
 	) | rpl::on_next([this](Ui::ScrollToRequest request) {
 		scrollTo(request);
 	}, _inner->lifetime());
-	if (Storage::PendingDownloadsEnabled()) {
-		_management = Ui::CreateChild<ManagementBar>(this, controller, _inner);
-		_management->show();
+	_management = Ui::CreateChild<ManagementBar>(this, controller, _inner);
+	const auto refresh = [=] {
+		_management->setVisible(Core::App().downloadSettings().activation().enabled
+			|| Core::App().downloadManager().hasPendingDownloads());
+		layoutManagementBar();
+	};
+	Core::App().downloadManager().pendingViewsChanged(
+	) | rpl::on_next(refresh, lifetime());
+	refresh();
+}
+
+void Widget::layoutManagementBar() {
+	if (_management && !_management->isHidden()) {
+		_management->resizeToWidth(width());
+		_management->moveToLeft(0, height() - _management->height(), width());
+		setScrollBottomSkip(_management->height());
+	} else {
+		setScrollBottomSkip(0);
 	}
 }
 
 void Widget::resizeEvent(QResizeEvent *e) {
-	if (_management) {
-		_management->resizeToWidth(width());
-		_management->moveToLeft(0, height() - _management->height(), width());
-		setScrollBottomSkip(_management->height());
-	}
+	layoutManagementBar();
 	ContentWidget::resizeEvent(e);
 }
 

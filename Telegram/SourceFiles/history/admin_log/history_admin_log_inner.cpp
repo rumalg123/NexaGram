@@ -2514,7 +2514,7 @@ void InnerWidget::showStickerPackInfo(not_null<DocumentData*> document) {
 }
 
 void InnerWidget::cancelContextDownload(not_null<DocumentData*> document) {
-	document->cancel();
+	DocumentCancelClickHandler::Cancel(document);
 }
 
 void InnerWidget::showContextInFolder(not_null<DocumentData*> document) {

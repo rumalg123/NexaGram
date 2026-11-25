@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/components/ephemeral_messages.h"
 #include "data/data_chat_participant_status.h"
 #include "data/data_document.h"
+#include "data/data_file_click_handler.h"
 #include "data/data_file_origin.h"
 #include "data/data_peer.h"
 #include "data/data_saved_music.h"
@@ -1115,7 +1116,7 @@ void GlobalMusicSearchSection::showContextMenu(
 		_contextMenu->addAction(
 			tr::lng_context_cancel_download(tr::now),
 			[document] {
-				document->cancel();
+				DocumentCancelClickHandler::Cancel(document);
 			},
 			&st::menuIconCancel);
 	} else {

@@ -113,6 +113,7 @@ namespace Core {
 
 struct LocalUrlHandler;
 class ScreenshotProtection;
+class DownloadSettings;
 class Settings;
 class Tray;
 
@@ -222,6 +223,7 @@ public:
 	void startSettingsAndBackground();
 	[[nodiscard]] Settings &settings();
 	[[nodiscard]] const Settings &settings() const;
+	[[nodiscard]] DownloadSettings &downloadSettings() const;
 	void saveSettingsDelayed(crl::time delay = kDefaultSaveDelay);
 	void saveSettings();
 

@@ -130,7 +130,8 @@ private:
 		const MTPUser &user,
 		QByteArray serialized,
 		int streamVersion,
-		std::unique_ptr<SessionSettings> settings);
+		std::unique_ptr<SessionSettings> settings,
+		bool restoredFromStorage);
 	void watchProxyChanges();
 	void watchSessionChanges();
 	bool checkForUpdates(const MTP::Response &message);

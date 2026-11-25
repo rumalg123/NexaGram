@@ -141,6 +141,11 @@ public:
 	[[nodiscard]] rpl::producer<> pendingProgressChanged() const;
 	[[nodiscard]] rpl::producer<uint64> pendingCleanupDeferred() const;
 	[[nodiscard]] bool pendingBatchActive(uint64 account) const;
+	[[nodiscard]] bool hasActivePendingDownloads() const;
+	[[nodiscard]] bool hasPendingDownloads() const;
+	enum class PendingDestination { Available, Checking, Reserved };
+	[[nodiscard]] PendingDestination pendingDestination(const QString &path) const;
+	void loadPending(not_null<Main::Session*> session, bool restoredFromStorage);
 	void pendingLoaderUpdated(bool transition, Storage::PendingDownloadId id = {});
 	void actOnPending(const Storage::PendingDownloadId &id, Storage::DownloadAction action);
 	void actOnPendingBatch(
@@ -226,6 +231,7 @@ private:
 		bool resolve = false;
 		bool start = false;
 		bool resolving = false;
+		bool startupResume = false;
 		bool rowDirty = false;
 		bool displayingRate = false;
 		int64 inspectedBytes = 0;
@@ -235,6 +241,8 @@ private:
 		Storage::PendingDownloadList pending;
 		base::flat_map<QUuid, PendingRuntime> pendingRuntime;
 		bool pendingReady = false;
+		bool pendingReadStarted = false;
+		bool pendingReading = false;
 		std::vector<DownloadedId> downloaded;
 		std::vector<DownloadingId> downloading;
 		int resolveNeeded = 0;
@@ -243,7 +251,6 @@ private:
 		rpl::lifetime lifetime;
 	};
 
-	void loadPending(not_null<Main::Session*> session);
 	[[nodiscard]] Main::Session *pendingSession(uint64 account) const;
 	[[nodiscard]] PendingDownloadView makePendingView(
 		not_null<Main::Session*> session,

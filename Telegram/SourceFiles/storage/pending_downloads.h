@@ -55,8 +55,12 @@ inline constexpr auto kPendingDownloadRegistrySize = 2 * 1024 * 1024;
 [[nodiscard]] bool ReplacePendingDownloadRegistry(
 	const QString &path,
 	QByteArrayView encrypted);
-[[nodiscard]] bool PendingDownloadsEnabled();
-[[nodiscard]] bool PendingDownloadsAutoResume();
+[[nodiscard]] constexpr bool PendingDownloadMayAutoResume(PendingDownloadState state) {
+	return state == PendingDownloadState::Downloading
+		|| state == PendingDownloadState::Interrupted
+		|| state == PendingDownloadState::Finalizing;
+}
+
 [[nodiscard]] bool PendingDownloadsTrace();
 void TracePendingDownload(const QUuid &id, const char *event, int detail = 0);
 

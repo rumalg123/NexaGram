@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 
 #include "data/data_document_resolver.h"
+#include "data/data_file_click_handler.h"
 #include "data/data_download_manager.h"
 #include "data/data_session.h"
 #include "data/data_streaming.h"
@@ -21,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
+#include "core/core_download_settings.h"
 #include "data/stickers/data_stickers.h"
 #include "media/audio/media_audio.h"
 #include "media/player/media_player_instance.h"
@@ -1235,6 +1237,10 @@ void DocumentData::save(
 		bool autoLoading,
 		SaveIntent intent) {
 	Test::NotifyDocumentSave(this, toFile, autoLoading);
+	if (const auto error = Data::PendingDownloadDestinationError(toFile); !error.isEmpty()) {
+		Ui::show(Ui::MakeInformBox(error));
+		return;
+	}
 	if (const auto media = activeMediaView(); media && media->loaded(true)) {
 		const auto &l = location(true);
 		if (!toFile.isEmpty()) {
@@ -1297,7 +1303,7 @@ void DocumentData::save(
 		status = FileReady;
 		auto reader = owner().streaming().sharedReader(this, origin, true);
 		const auto persistent = intent != SaveIntent::Default
-			&& Storage::PendingDownloadsEnabled()
+			&& Core::App().downloadSettings().activation().enabled
 			&& !autoLoading
 			&& fromCloud == LoadFromCloudOrLocal
 			&& QFileInfo(toFile).isAbsolute()
@@ -1315,7 +1321,7 @@ void DocumentData::save(
 				toFile,
 				intent == SaveIntent::ExplicitWithOverwrite);
 			if (!job) {
-				Ui::show(Ui::MakeInformBox(u"Could not start the resumable download. Check Downloads for an existing job or try again."_q));
+				Ui::show(Ui::MakeInformBox(tr::lng_downloads_resumable_start_failed(tr::now)));
 				return;
 			}
 			_loader = makePersistentLoader(
@@ -1697,7 +1703,7 @@ bool DocumentData::saveFromDataChecked() {
 		return false;
 	}
 	const auto path = DocumentFileNameForSave(this);
-	if (path.isEmpty()) {
+	if (path.isEmpty() || !Data::PendingDownloadDestinationError(path).isEmpty()) {
 		return false;
 	}
 	auto file = QFile(path);

@@ -341,7 +341,7 @@ bool Result::onChoose(Layout::ItemBase *layout) {
 				return true;
 			} else if (!preview.usingThumbnail()) {
 				if (preview.loading()) {
-					_document->cancel();
+					DocumentCancelClickHandler::Cancel(_document);
 				} else {
 					DocumentSaveClickHandler::Save(
 						Data::FileOriginSavedGifs(),

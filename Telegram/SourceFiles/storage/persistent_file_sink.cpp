@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/persistent_file_sink.h"
 
+#include "storage/download_policy.h"
+
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QDataStream>
 #include <QtCore/QDebug>
@@ -643,7 +645,7 @@ QString PersistentFileSink::checkpointPath() const {
 }
 
 void PersistentFileSink::log(const char *action) const {
-	if (qEnvironmentVariableIntValue("TDESKTOP_PERSISTENT_DOWNLOAD_TRACE") == 1) {
+	if (DownloadOverrideValue(PersistentDownloadOverrides().trace).value_or(false)) {
 		qInfo() << "Persistent download" << _job.id << action
 			<< "committed" << _committed.count(true)
 			<< "missing" << (_committed.size() - _committed.count(true));

@@ -55,6 +55,7 @@ void sync();
 void finish();
 
 void writeSettings();
+[[nodiscard]] bool writeSettingsChecked();
 void rewriteSettingsIfNeeded();
 
 void writeAutoupdatePrefix(const QString &prefix);

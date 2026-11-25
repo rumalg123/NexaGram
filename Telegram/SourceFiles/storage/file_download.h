@@ -144,6 +144,7 @@ protected:
 	void readImage() const;
 
 	virtual bool checkForOpen();
+	void openOutputFile();
 	bool tryLoadLocal();
 	void loadLocal(const Storage::Cache::Key &key);
 	virtual Storage::Cache::Key cacheKey() const = 0;

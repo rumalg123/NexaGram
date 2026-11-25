@@ -21,6 +21,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/download_path_box.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_download_settings.h"
+#include "data/data_download_manager.h"
 #include "core/file_utilities.h"
 #include "core/launcher.h"
 #include "core/update_channel.h"
@@ -213,6 +215,120 @@ void BuildDataStorageSection(SectionBuilder &builder) {
 	}
 
 	builder.addSkip(st::settingsCheckboxesSkip);
+}
+
+void BuildResumableDownloadsSection(SectionBuilder &builder) {
+	using Preference = Storage::DownloadPreference;
+	using Preferences = Storage::DownloadPreferences;
+	const auto controller = builder.controller();
+	const auto settings = &Core::App().downloadSettings();
+	const auto overrides = Storage::PersistentDownloadOverrides();
+	const auto values = [=] {
+		return rpl::single(rpl::empty) | rpl::then(settings->changes());
+	};
+
+	builder.addDivider();
+	builder.addSkip();
+	builder.addSubsectionTitle({
+		.id = u"advanced/resumable_downloads"_q,
+		.title = tr::lng_settings_resumable_downloads(),
+		.keywords = { u"download"_q, u"resume"_q, u"pause"_q },
+	});
+
+	const auto addToggle = [&](
+			Preference preference,
+			QString id,
+			rpl::producer<QString> title,
+			rpl::producer<QString> description,
+			bool Preferences::*field,
+			std::optional<bool> forced = std::nullopt) {
+		const auto button = builder.addButton({
+			.id = std::move(id),
+			.title = std::move(title),
+			.st = &st::settingsButtonNoIcon,
+			.keywords = { u"download"_q, u"resume"_q },
+		});
+		builder.addDividerText(std::move(description));
+		if (forced) {
+			builder.addDividerText(*forced
+				? tr::lng_settings_resumable_override_on()
+				: tr::lng_settings_resumable_override_off());
+		}
+		if (!button) {
+			return;
+		}
+		const auto available = [=] {
+			return (preference != Preference::StartupResume)
+				|| Storage::ResolveDownloadActivation(settings->preferences(), overrides).enabled;
+		};
+		const auto checked = [=] {
+			return available() && forced.value_or(settings->preferences().*field);
+		};
+		const auto disabled = [=] {
+			return forced.has_value() || !available();
+		};
+		button->setAllowTextLines(2);
+		button->toggleOn(values() | rpl::map(checked), true);
+		values() | rpl::on_next([=] {
+			button->setDisabled(disabled());
+		}, button->lifetime());
+		button->addClickHandler([=] {
+			if (disabled()) {
+				return;
+			}
+			const auto value = !checked();
+			const auto save = crl::guard(button, [=] {
+				if (!settings->setPreference(preference, value)) {
+					controller->showToast(tr::lng_settings_resumable_save_failed(tr::now));
+				}
+			});
+			if (preference == Preference::Enabled && !value
+				&& Core::App().downloadManager().hasActivePendingDownloads()) {
+				controller->show(Ui::MakeConfirmBox({
+					.text = tr::lng_settings_resumable_disable_confirm(),
+					.confirmed = save,
+					.confirmText = tr::lng_settings_resumable_disable(),
+				}));
+			} else {
+				save();
+			}
+		});
+	};
+
+	addToggle(
+		Preference::Enabled,
+		u"advanced/resumable_enabled"_q,
+		tr::lng_settings_resumable_enabled(),
+		tr::lng_settings_resumable_enabled_about(),
+		&Preferences::enabled,
+		Storage::DownloadOverrideValue(overrides.enabled));
+	addToggle(
+		Preference::StartupResume,
+		u"advanced/resumable_startup"_q,
+		tr::lng_settings_resumable_startup(),
+		tr::lng_settings_resumable_startup_about(),
+		&Preferences::startupResume,
+		Storage::DownloadOverrideValue(overrides.startupResume));
+	addToggle(
+		Preference::ConfirmCancellation,
+		u"advanced/resumable_confirm_cancel"_q,
+		tr::lng_settings_resumable_confirm_cancel(),
+		tr::lng_settings_resumable_confirm_cancel_about(),
+		&Preferences::confirmCancellation);
+	addToggle(
+		Preference::PendingIndicator,
+		u"advanced/resumable_pending_indicator"_q,
+		tr::lng_settings_resumable_pending_indicator(),
+		tr::lng_settings_resumable_pending_indicator_about(),
+		&Preferences::pendingIndicator);
+	builder.addButton({
+		.id = u"advanced/resumable_restart"_q,
+		.title = tr::lng_settings_restart_now(),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [] { Core::Restart(); },
+		.shown = values() | rpl::map([=] { return settings->restartRequired(); }),
+	});
+	builder.addSkip();
 }
 
 void BuildAutoDownloadSection(SectionBuilder &builder) {
@@ -1366,6 +1482,7 @@ const auto kMeta = BuildHelper({
 		BuildUpdateSection(builder, true);
 	}
 	BuildDataStorageSection(builder);
+	BuildResumableDownloadsSection(builder);
 	BuildAutoDownloadSection(builder);
 	BuildWindowTitleSection(builder);
 #if !defined Q_OS_WIN && !defined Q_OS_MACOS

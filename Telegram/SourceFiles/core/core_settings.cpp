@@ -1499,9 +1499,30 @@ void Settings::clearPref(std::string_view key) {
 	_saveDelayed.fire({});
 }
 
+bool Settings::writePrefChecked(
+		std::string_view key,
+		const QByteArray &value,
+		Fn<bool()> persist) {
+	const auto previous = readPrefGeneric(key);
+	if (previous && *previous == value) {
+		return true;
+	}
+	writePrefGeneric(key, value, false);
+	if (persist()) {
+		return true;
+	}
+	if (previous) {
+		writePrefGeneric(key, *previous, false);
+	} else {
+		_prefs.remove(QByteArray(key.data(), key.size()));
+	}
+	return false;
+}
+
 void Settings::writePrefGeneric(
 		std::string_view key,
-		const QByteArray &value) {
+		const QByteArray &value,
+		bool scheduleSave) {
 	const auto raw = QByteArray(key.data(), key.size());
 	if (const auto i = _prefs.find(raw); i != end(_prefs)) {
 		if (i->second == value) {
@@ -1511,7 +1532,9 @@ void Settings::writePrefGeneric(
 	} else {
 		_prefs.emplace(raw, value);
 	}
-	_saveDelayed.fire({});
+	if (scheduleSave) {
+		_saveDelayed.fire({});
+	}
 }
 
 std::optional<QByteArray> Settings::readPrefGeneric(std::string_view key) {

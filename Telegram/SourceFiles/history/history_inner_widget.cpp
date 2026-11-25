@@ -1,4 +1,4 @@
-﻿/*
+/*
 This file is part of Telegram Desktop,
 the official desktop application for the Telegram messaging service.
 
@@ -4443,7 +4443,7 @@ void HistoryInner::showStickerPackInfo(not_null<DocumentData*> document) {
 }
 
 void HistoryInner::cancelContextDownload(not_null<DocumentData*> document) {
-	document->cancel();
+	DocumentCancelClickHandler::Cancel(document);
 }
 
 void HistoryInner::showContextInFolder(not_null<DocumentData*> document) {

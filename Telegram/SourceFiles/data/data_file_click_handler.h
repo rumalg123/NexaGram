@@ -14,6 +14,23 @@ class DocumentData;
 class HistoryItem;
 class PhotoData;
 
+namespace Storage {
+struct PendingDownloadId;
+} // namespace Storage
+
+namespace Ui {
+class Show;
+} // namespace Ui
+
+namespace Data {
+
+void RequestPendingDownloadCancellation(
+	const Storage::PendingDownloadId &id,
+	const Ui::Show *show = nullptr);
+[[nodiscard]] QString PendingDownloadDestinationError(const QString &path);
+
+} // namespace Data
+
 class FileClickHandler : public LeftButtonClickHandler {
 public:
 	FileClickHandler(FullMsgId context);
@@ -83,6 +100,8 @@ private:
 
 class DocumentCancelClickHandler : public DocumentClickHandler {
 public:
+	static void Cancel(not_null<DocumentData*> data, const Ui::Show *show = nullptr);
+
 	DocumentCancelClickHandler(
 		not_null<DocumentData*> document,
 		Fn<void(FullMsgId)> &&callback,

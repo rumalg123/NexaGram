@@ -13,6 +13,7 @@ PRIVATE
     media/streaming/media_streaming_download_attachment.h
     storage/persistent_file_sink.cpp
     storage/persistent_file_sink.h
+    storage/download_policy.h
     storage/download_presentation.h
     storage/pending_downloads.cpp
     storage/pending_downloads.h

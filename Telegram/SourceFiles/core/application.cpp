@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "core/core_screenshot_protection.h"
 #include "core/core_settings.h"
+#include "core/core_download_settings.h"
 #include "core/update_checker.h"
 #include "core/shortcuts.h"
 #include "core/sandbox.h"
@@ -162,6 +163,7 @@ struct Application::Private {
 	base::Timer quitTimer;
 	UiIntegration uiIntegration;
 	Settings settings;
+	DownloadSettings downloads{ &settings };
 	std::unique_ptr<ProxyRotationManager> proxyRotation;
 };
 
@@ -872,6 +874,10 @@ const Settings &Application::settings() const {
 	return _private->settings;
 }
 
+DownloadSettings &Application::downloadSettings() const {
+	return _private->downloads;
+}
+
 void Application::saveSettingsDelayed(crl::time delay) {
 	if (_saveSettingsTimer) {
 		_saveSettingsTimer->callOnce(delay);
@@ -986,6 +992,7 @@ void Application::badMtprotoConfigurationError(const MTP::ProxyData &proxy) {
 void Application::startLocalStorage() {
 	Ui::GL::DetectLastCheckCrash();
 	Local::start();
+	_private->downloads.initialize();
 	_saveSettingsTimer.emplace([=] { saveSettings(); });
 	settings().saveDelayedRequests() | rpl::on_next([=] {
 		saveSettingsDelayed();

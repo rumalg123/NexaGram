@@ -66,6 +66,7 @@ protected:
 	void resizeEvent(QResizeEvent *e) override;
 
 private:
+	void layoutManagementBar();
 	void saveState(not_null<Memento*> memento);
 	void restoreState(not_null<Memento*> memento);
 

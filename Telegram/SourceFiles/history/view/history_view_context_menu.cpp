@@ -1,4 +1,4 @@
-﻿/*
+/*
 This file is part of Telegram Desktop,
 the official desktop application for the Telegram messaging service.
 
@@ -455,7 +455,7 @@ void AddDocumentActions(
 			Ui::Menu::CreateAddActionCallback(menu),
 			document);
 		menu->addAction(tr::lng_context_cancel_download(tr::now), [=] {
-			document->cancel();
+			DocumentCancelClickHandler::Cancel(document);
 		}, &st::menuIconCancel);
 		return;
 	}

@@ -647,6 +647,8 @@ PRIVATE
     core/core_cloud_password.h
     core/core_screenshot_protection.cpp
     core/core_screenshot_protection.h
+    core/core_download_settings.cpp
+    core/core_download_settings.h
     core/core_settings.cpp
     core/core_settings.h
     core/core_settings_proxy.cpp
@@ -2149,6 +2151,7 @@ PRIVATE
     storage/file_download_mtproto.h
     storage/persistent_file_sink.cpp
     storage/persistent_file_sink.h
+    storage/download_policy.h
     storage/download_presentation.h
     storage/persistent_file_loader.cpp
     storage/persistent_file_loader.h

@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_location.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_download_settings.h"
 #include "core/version.h"
 #include "media/audio/media_audio.h"
 #include "mtproto/mtproto_config.h"
@@ -433,19 +434,24 @@ void start() {
 	readLangPack();
 }
 
-void writeSettings() {
+namespace {
+
+bool WriteSettings(bool checked) {
+	if (checked && !_settingsWriteAllowed) {
+		return false;
+	}
 	if (!_settingsWriteAllowed) {
 		_settingsRewriteNeeded = true;
 
 		// We need to generate SettingsKey anyway,
 		// for the moveLegacyBackground to work.
 		if (SettingsKey) {
-			return;
+			return false;
 		}
 	}
 	if (_basePath.isEmpty()) {
 		LOG(("App Error: _basePath is empty in writeSettings()"));
-		return;
+		return false;
 	}
 
 	if (!QDir().exists(_basePath)) QDir().mkpath(_basePath);
@@ -453,7 +459,7 @@ void writeSettings() {
 	// We dropped old test authorizations when migrated to multi auth.
 	//const auto name = cTestMode() ? u"settings_test"_q : u"settings"_q;
 	const auto name = u"settings"_q;
-	FileWriteDescriptor settings(name, _basePath);
+	FileWriteDescriptor settings(name, _basePath, checked, checked);
 	if (_settingsSalt.isEmpty() || !SettingsKey) {
 		_settingsSalt.resize(LocalEncryptSaltSize);
 		base::RandomFill(_settingsSalt.data(), _settingsSalt.size());
@@ -464,7 +470,7 @@ void writeSettings() {
 	if (!_settingsWriteAllowed) {
 		EncryptedDescriptor data(0);
 		settings.writeEncrypted(data, SettingsKey);
-		return;
+		return false;
 	}
 	const auto configSerialized = LookupFallbackConfig().serialize();
 	const auto applicationSettings = Core::App().settings().serialize();
@@ -520,6 +526,17 @@ void writeSettings() {
 	}
 
 	settings.writeEncrypted(data, SettingsKey);
+	return !checked || settings.finish();
+}
+
+} // namespace
+
+void writeSettings() {
+	WriteSettings(false);
+}
+
+bool writeSettingsChecked() {
+	return WriteSettings(true);
 }
 
 void rewriteSettingsIfNeeded() {
@@ -867,6 +884,7 @@ void reset() {
 	Window::Theme::Background()->reset();
 	_oldSettingsVersion = 0;
 	Core::App().settings().resetOnLastLogout();
+	Core::App().downloadSettings().preferencesReset();
 	Core::App().reseedWindowInSettings();
 	if (const auto saved = Core::App().savedWindows()) {
 		saved->resetOnLastLogout();

@@ -5847,6 +5847,25 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_translate_cocoon_done" = "Understood";
 
 "lng_downloads_section" = "Downloads";
+"lng_settings_resumable_downloads" = "Resumable Downloads";
+"lng_settings_resumable_enabled" = "Enable resumable downloads";
+"lng_settings_resumable_enabled_about" = "Keep incomplete downloads so you can resume them after an interruption or restart. Restart 64Gram to apply a change to this setting.";
+"lng_settings_resumable_startup" = "Resume interrupted downloads on startup";
+"lng_settings_resumable_startup_about" = "When resumable downloads are enabled, continue eligible downloads on the next launch. Manually paused downloads stay paused.";
+"lng_settings_resumable_confirm_cancel" = "Confirm individual download cancellation";
+"lng_settings_resumable_confirm_cancel_about" = "Ask before permanently deleting a download's incomplete progress. Cancelling multiple downloads always requires confirmation.";
+"lng_settings_resumable_pending_indicator" = "Show pending download indicator";
+"lng_settings_resumable_pending_indicator_about" = "Show the Downloads shortcut in the chat list when transfers are idle. Downloads remains available in Settings > Advanced.";
+"lng_settings_resumable_override_on" = "A developer environment variable requests On for this launch.";
+"lng_settings_resumable_override_off" = "A developer environment variable has turned this setting off for this launch.";
+"lng_settings_resumable_save_failed" = "Could not save this preference. Check local storage and try again.";
+"lng_settings_resumable_disable" = "Turn Off";
+"lng_settings_resumable_disable_confirm" = "Turn off resumable downloads after restarting 64Gram? Current transfers continue until you quit. Incomplete progress will be preserved. You can still manage saved jobs in Downloads.";
+"lng_downloads_resumable_disabled" = "To resume preserved downloads, enable resumable downloads in Settings > Advanced and restart.";
+"lng_downloads_resumable_start_failed" = "Could not start the resumable download. Check Downloads for an existing job or try again.";
+"lng_downloads_cancel_individual" = "Cancel this download and permanently delete its saved incomplete progress?";
+"lng_downloads_destination_checking" = "64Gram is still checking for incomplete downloads. Try saving again in a moment.";
+"lng_downloads_destination_reserved" = "This path is reserved by resumable downloads. Choose a different filename or manage the existing job in Downloads.";
 "lng_downloads_status_preparing" = "Preparing download";
 "lng_downloads_status_downloading" = "Downloading";
 "lng_downloads_status_pausing" = "Pausing";

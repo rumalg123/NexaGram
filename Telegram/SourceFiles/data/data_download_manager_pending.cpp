@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/random.h"
 #include "base/unixtime.h"
 #include "core/application.h"
+#include "core/core_download_settings.h"
 #include "core/file_location.h"
 #include "data/data_channel.h"
 #include "data/data_document.h"
@@ -46,7 +47,17 @@ FullMsgId SourceId(const Job &job) {
 
 bool SameDestination(const QString &a, const QString &b) {
 #ifdef Q_OS_WIN
-	return a.compare(b, Qt::CaseInsensitive) == 0;
+	const auto normalize = [](QStringView path) {
+		const auto separator = path.lastIndexOf(u'/');
+		if (const auto stream = path.indexOf(u':', separator + 1); stream > 1) {
+			path = path.left(stream);
+		}
+		while (!path.isEmpty() && (path.back() == u'.' || path.back() == u' ')) {
+			path.chop(1);
+		}
+		return path;
+	};
+	return normalize(a).compare(normalize(b), Qt::CaseInsensitive) == 0;
 #else
 	return a == b;
 #endif
@@ -227,11 +238,23 @@ bool DownloadManager::savePending(
 	return result;
 }
 
-void DownloadManager::loadPending(not_null<Main::Session*> session) {
-	if (!Storage::PendingDownloadsEnabled()) {
+void DownloadManager::loadPending(
+		not_null<Main::Session*> session,
+		bool restoredFromStorage) {
+	auto &data = sessionData(session);
+	if (data.pendingReadStarted) {
 		return;
 	}
+	data.pendingReadStarted = true;
 	const auto file = session->local().pendingDownloadFile(session->uniqueId());
+	if (file.key && Storage::PersistentDownloadPathMissing(file.path)) {
+		data.pendingReady = true;
+		Storage::TracePendingDownload({}, "pending registry absent");
+		return;
+	}
+	data.pendingReading = true;
+	const auto autoResume = restoredFromStorage
+		&& Core::App().downloadSettings().activation().startupResume;
 	const auto strong = base::make_weak(session.get());
 	auto done = crl::guard(this, [=](std::optional<Storage::PendingDownloadList> jobs) {
 		const auto session = strong.get();
@@ -240,16 +263,18 @@ void DownloadManager::loadPending(not_null<Main::Session*> session) {
 		}
 		Storage::TracePendingDownload({}, jobs ? "registry loaded, account validated"
 			: "registry invalid, preserved");
+		auto &data = sessionData(session);
+		data.pendingReading = false;
 		if (!jobs) {
 			return;
 		}
-		auto &data = sessionData(session);
 		data.pendingReady = true;
 		data.pending = *jobs;
 		for (const auto &job : *jobs) {
-			data.pendingRuntime.emplace(job.file.id, PendingRuntime());
+			data.pendingRuntime.emplace(job.file.id, PendingRuntime{ .startupResume = autoResume });
 			showPendingRow(session, job);
 		}
+		Storage::TracePendingDownload({}, "pending jobs discovered", int(jobs->size()));
 		scanPending();
 	});
 	crl::async([file, done = std::move(done)]() mutable {
@@ -267,16 +292,22 @@ std::optional<Storage::PendingDownload> DownloadManager::reservePending(
 		bool replace) {
 	const auto session = &document->session();
 	const auto item = session->data().message(origin);
-	if (!item || _pendingQuitting || !sessionData(session).pendingReady) {
+	if (!item || _pendingQuitting || !sessionData(session).pendingReady
+		|| !Core::App().downloadSettings().activation().enabled
+		|| pendingDestination(destination) != PendingDestination::Available) {
 		return std::nullopt;
 	}
 	const auto clean = QDir::cleanPath(QFileInfo(destination).absoluteFilePath());
+	for (const auto &job : sessionData(session).pending) {
+		if (job.document == document->id || SourceId(job) == origin) {
+			Storage::TracePendingDownload(job.file.id, "duplicate job refused");
+			return std::nullopt;
+		}
+	}
 	for (const auto &[owner, data] : _sessions) {
-		for (const auto &job : data.pending) {
-			if (SameDestination(job.file.destination, clean)
-				|| (owner == session && (job.document == document->id
-					|| SourceId(job) == origin))) {
-				Storage::TracePendingDownload(job.file.id, "duplicate job refused");
+		for (const auto &loading : data.downloading) {
+			if (!loading.done && !loading.path.isEmpty()
+				&& SameDestination(QDir::cleanPath(QFileInfo(loading.path).absoluteFilePath()), clean)) {
 				return std::nullopt;
 			}
 		}
@@ -489,7 +520,8 @@ PendingDownloadView DownloadManager::makePendingView(
 	result.canPause = Storage::AllowsDownloadAction(true, status, Action::Pause)
 		&& (status == Status::Downloading
 			|| Storage::PendingDownloadTransition(job.state, State::Paused));
-	result.canResume = Storage::AllowsDownloadAction(true, status, Action::Resume);
+	result.canResume = Core::App().downloadSettings().activation().enabled
+		&& Storage::AllowsDownloadAction(true, status, Action::Resume);
 	result.canCancel = Storage::AllowsDownloadAction(true, status, Action::Cancel)
 		&& (job.state != State::Finalizing || runtime.inspected);
 	return result;
@@ -714,6 +746,9 @@ DownloadManager::PendingActionOutcome DownloadManager::applyPendingAction(
 }
 
 bool DownloadManager::resumePending(not_null<DocumentData*> document, FullMsgId origin) {
+	if (!Core::App().downloadSettings().activation().enabled) {
+		return false;
+	}
 	const auto session = &document->session();
 	const auto &data = sessionData(session);
 	for (const auto &job : data.pending) {
@@ -724,6 +759,71 @@ bool DownloadManager::resumePending(not_null<DocumentData*> document, FullMsgId 
 		}
 	}
 	return false;
+}
+
+bool DownloadManager::hasActivePendingDownloads() const {
+	for (const auto &[session, data] : _sessions) {
+		for (const auto &[id, runtime] : data.pendingRuntime) {
+			const auto transfer = runtime.active
+				? runtime.active->persistentTransferView()
+				: std::nullopt;
+			if (runtime.start || runtime.stopPublication || (transfer
+				&& Storage::MatchesDownloadFilter(transfer->status, Storage::DownloadFilter::Active))) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool DownloadManager::hasPendingDownloads() const {
+	for (const auto &[session, data] : _sessions) {
+		for (const auto &[id, runtime] : data.pendingRuntime) {
+			if (runtime.row) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+DownloadManager::PendingDestination DownloadManager::pendingDestination(const QString &path) const {
+	if (path.isEmpty()) {
+		return PendingDestination::Available;
+	}
+	const auto file = QFileInfo(path);
+	if (Storage::IsPendingDownloadArtifactName(file.fileName())) {
+		return PendingDestination::Reserved;
+	}
+	const auto absolute = QDir::cleanPath(file.absoluteFilePath());
+	auto reading = false;
+	auto canonical = std::optional<QString>();
+	for (const auto &[session, data] : _sessions) {
+		reading = reading || data.pendingReading;
+		if (data.pending.empty()) {
+			continue;
+		}
+		if (!canonical) {
+			auto resolved = file.canonicalFilePath();
+			if (resolved.isEmpty()) {
+				const auto directory = file.absoluteDir().canonicalPath();
+				if (!directory.isEmpty()) {
+					resolved = QDir(directory).filePath(file.fileName());
+				}
+			}
+			canonical = resolved;
+			if (Storage::IsPendingDownloadArtifactName(QFileInfo(resolved).fileName())) {
+				return PendingDestination::Reserved;
+			}
+		}
+		for (const auto &job : data.pending) {
+			if (SameDestination(job.file.destination, absolute)
+				|| (!canonical->isEmpty() && SameDestination(job.file.destination, *canonical))) {
+				return PendingDestination::Reserved;
+			}
+		}
+	}
+	return reading ? PendingDestination::Checking : PendingDestination::Available;
 }
 
 bool DownloadManager::hasCompletedPending(
@@ -775,15 +875,13 @@ void DownloadManager::scanPending() {
 						return;
 					} else {
 						const auto currentState = current.state;
-						const auto interrupted = currentState == State::Downloading
-							|| currentState == State::Interrupted;
 						if (currentState == State::Downloading) {
 							const auto saved = updatePending(session, id, State::Interrupted);
 							Storage::TracePendingDownload(id, "interruption recorded", int(saved));
 						}
-						const auto automatic = scan.result == Sink::Result::Ok
-							&& Storage::PendingDownloadsAutoResume()
-							&& (interrupted || currentState == State::Finalizing);
+						const auto startupResume = std::exchange(runtime.startupResume, false);
+						const auto automatic = startupResume && scan.result == Sink::Result::Ok
+							&& Storage::PendingDownloadMayAutoResume(currentState);
 						runtime.resolve = runtime.resolve || automatic;
 						runtime.start = runtime.start || automatic;
 						runtime.inspectionFailed = scan.result != Sink::Result::Ok
@@ -876,7 +974,8 @@ void DownloadManager::requestPending(
 }
 
 void DownloadManager::resolvePending() {
-	if (_pendingResolveBusy || _pendingQuitting) {
+	if (_pendingResolveBusy || _pendingQuitting
+		|| !Core::App().downloadSettings().activation().enabled) {
 		return;
 	}
 	auto opening = 0;

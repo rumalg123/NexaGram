@@ -1,4 +1,4 @@
-﻿/*
+/*
 This file is part of Telegram Desktop,
 the official desktop application for the Telegram messaging service.
 
@@ -3463,6 +3463,13 @@ void OverlayWidget::saveAs() {
 				name,
 				true,
 				alreadyDir);
+			if (const auto error = Data::PendingDownloadDestinationError(file); !error.isEmpty()) {
+				if (bytes.isEmpty()) {
+					location.accessDisable();
+				}
+				uiShow()->showToast(error);
+				return;
+			}
 			if (!file.isEmpty() && file != location.name()) {
 				auto saved = false;
 				if (bytes.isEmpty()) {
@@ -3637,6 +3644,11 @@ void OverlayWidget::downloadMedia() {
 				base::FileNameFromUserString(_document->filename()),
 				location.name(),
 				path);
+			if (const auto error = Data::PendingDownloadDestinationError(toName); !error.isEmpty()) {
+				location.accessDisable();
+				uiShow()->showToast(error);
+				return;
+			}
 			if (!toName.isEmpty() && toName != location.name()) {
 				QFile(toName).remove();
 				if (!QFile(location.name()).copy(toName)) {
@@ -3719,8 +3731,9 @@ void OverlayWidget::downloadMedia() {
 
 void OverlayWidget::saveCancel() {
 	if (_document && _document->loading()) {
-		_document->cancel();
-		if (_documentMedia->canBePlayed()) {
+		const auto persistent = _document->hasPersistentDownload();
+		DocumentCancelClickHandler::Cancel(_document, uiShow().get());
+		if (!persistent && _documentMedia->canBePlayed()) {
 			redisplayContent();
 		}
 	}

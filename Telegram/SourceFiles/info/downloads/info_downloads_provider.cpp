@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "data/data_download_manager.h"
 #include "data/data_document.h"
+#include "data/data_file_click_handler.h"
 #include "data/data_media_types.h"
 #include "data/data_session.h"
 #include "main/main_account.h"
@@ -385,9 +386,7 @@ bool Provider::isAfter(
 }
 
 bool Provider::searchMode() const {
-	return Storage::PendingDownloadsEnabled()
-		? !_query.trimmed().isEmpty()
-		: !_queryWords.empty();
+	return !_query.trimmed().isEmpty();
 }
 
 bool Provider::visible(const Element &element) const {
@@ -424,8 +423,7 @@ void Provider::fillSearchIndex(Element &element) {
 }
 
 bool Provider::computeIsFound(const Element &element) const {
-	if (Storage::PendingDownloadsEnabled()
-		&& Storage::MatchesDownloadName(element.filename, _query)) {
+	if (Storage::MatchesDownloadName(element.filename, _query)) {
 		return true;
 	}
 	if (_queryWords.empty()) {
@@ -534,7 +532,7 @@ std::unique_ptr<BaseLayout> Provider::createLayout(
 				}
 			};
 			fields.externalDiscard = [id] {
-				Core::App().downloadManager().actOnPending(id, Storage::DownloadAction::Cancel);
+				Data::RequestPendingDownloadCancellation(id);
 			};
 			fields.externalTooltip = [id] {
 				const auto view = Core::App().downloadManager().pendingView(id);

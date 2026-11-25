@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/pending_downloads.h"
 
+#include "storage/download_policy.h"
+
 #include <QtCore/QDataStream>
 #include <QtCore/QDebug>
 #include <QtCore/QDir>
@@ -174,16 +176,8 @@ bool ReplacePendingDownloadRegistry(const QString &path, QByteArrayView encrypte
 		&& file.commit();
 }
 
-bool PendingDownloadsEnabled() {
-	return qEnvironmentVariableIntValue("TDESKTOP_EXPERIMENTAL_RESUMABLE_DOWNLOADS") == 1;
-}
-
-bool PendingDownloadsAutoResume() {
-	return qEnvironmentVariableIntValue("TDESKTOP_EXPERIMENTAL_RESUME_ON_STARTUP") == 1;
-}
-
 bool PendingDownloadsTrace() {
-	return qEnvironmentVariableIntValue("TDESKTOP_PERSISTENT_DOWNLOAD_TRACE") == 1;
+	return DownloadOverrideValue(PersistentDownloadOverrides().trace).value_or(false);
 }
 
 void TracePendingDownload(const QUuid &id, const char *event, int detail) {

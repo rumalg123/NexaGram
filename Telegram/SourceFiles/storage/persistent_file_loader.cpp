@@ -47,8 +47,7 @@ struct PersistentFileLoader::Persistent {
 
 	Storage::PendingDownload job;
 	const QUuid id;
-	const bool trace = qEnvironmentVariableIntValue(
-		"TDESKTOP_PERSISTENT_DOWNLOAD_TRACE") == 1;
+	const bool trace = PendingDownloadsTrace();
 	crl::object_on_queue<Sink> worker;
 	base::Timer timer;
 	std::shared_ptr<std::atomic<bool>> cancelled

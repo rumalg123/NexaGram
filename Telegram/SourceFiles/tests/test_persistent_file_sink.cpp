@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/persistent_file_sink.h"
 #include "storage/pending_downloads.h"
 #include "storage/download_presentation.h"
+#include "storage/download_policy.h"
 #include "media/streaming/media_streaming_download_attachment.h"
 
 #include <QtCore/QCoreApplication>
@@ -15,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QDataStream>
 #include <QtCore/QDebug>
 #include <QtCore/QFileInfo>
+#include <QtCore/QMap>
 #include <QtCore/QProcess>
 #include <QtCore/QTemporaryDir>
 
@@ -706,6 +708,138 @@ void TestDownloadPresentation() {
 	Check(rate.rate(4000) == 0, "transfer after idle starts a fresh sample");
 }
 
+void TestDownloadPreferences() {
+	using Preference = Storage::DownloadPreference;
+	auto prefs = QMap<QByteArray, QByteArray>();
+	const auto key = [](Preference preference) {
+		const auto name = Storage::DownloadPreferenceKey(preference);
+		return QByteArray(name.data(), name.size());
+	};
+	const auto read = [&] {
+		return Storage::ReadDownloadPreferences([&](std::string_view name) {
+			return prefs.value(QByteArray(name.data(), name.size()));
+		});
+	};
+	const auto defaults = read();
+	Check(!defaults.enabled && !defaults.startupResume
+		&& defaults.confirmCancellation && defaults.pendingIndicator,
+		"pre-Milestone 5 profile receives explicit defaults");
+
+	prefs.insert("unrelated.preference", "unchanged");
+	prefs.insert(key(Preference::Enabled), Storage::DownloadBooleanValue(true));
+	prefs.insert(key(Preference::StartupResume), Storage::DownloadBooleanValue(true));
+	prefs.insert(key(Preference::ConfirmCancellation), Storage::DownloadBooleanValue(false));
+	prefs.insert(key(Preference::PendingIndicator), Storage::DownloadBooleanValue(false));
+
+	auto serialized = QByteArray();
+	{
+		auto stream = QDataStream(&serialized, QIODevice::WriteOnly);
+		stream << quint32(prefs.size());
+		for (auto i = prefs.cbegin(); i != prefs.cend(); ++i) {
+			stream << i.key() << i.value();
+		}
+		Check(stream.status() == QDataStream::Ok, "write preference map fixture");
+	}
+	prefs.clear();
+	{
+		auto stream = QDataStream(serialized);
+		auto count = quint32();
+		stream >> count;
+		for (auto i = quint32(); i != count; ++i) {
+			auto savedKey = QByteArray();
+			auto value = QByteArray();
+			stream >> savedKey >> value;
+			prefs.insert(savedKey, value);
+		}
+		Check(stream.status() == QDataStream::Ok && stream.atEnd(), "read preference map fixture");
+	}
+	const auto saved = read();
+	Check(saved.enabled && saved.startupResume
+		&& !saved.confirmCancellation && !saved.pendingIndicator
+		&& prefs.value("unrelated.preference") == "unchanged",
+		"settings round-trip preserves unrelated preferences");
+
+	prefs.insert(key(Preference::Enabled), "true");
+	prefs.insert(key(Preference::ConfirmCancellation), "2");
+	const auto invalid = read();
+	Check(!invalid.enabled && invalid.startupResume && invalid.confirmCancellation,
+		"malformed entries affect only their own defaults");
+	for (const auto preference : { Preference::Enabled, Preference::StartupResume,
+			Preference::ConfirmCancellation, Preference::PendingIndicator }) {
+		prefs.remove(key(preference));
+	}
+	const auto reset = read();
+	Check(!reset.enabled && !reset.startupResume && reset.confirmCancellation
+		&& reset.pendingIndicator && prefs.value("unrelated.preference") == "unchanged",
+		"removing settings restores only download defaults");
+}
+
+void TestDownloadOverridesAndPolicy() {
+	using Override = Storage::DownloadOverride;
+	using State = Storage::PendingDownloadState;
+	const auto parse = Storage::ParseDownloadOverride;
+	Check(parse(false, "1") == Override::Absent
+		&& parse(true, "0") == Override::Disabled
+		&& parse(true, "1") == Override::Enabled
+		&& parse(true, "") == Override::Invalid
+		&& parse(true, " 1") == Override::Invalid
+		&& parse(true, "true") == Override::Invalid,
+		"overrides distinguish missing, explicit off, explicit on, and invalid");
+	const auto persisted = Storage::DownloadPreferences{ .enabled = true, .startupResume = true };
+	const auto disabled = Storage::ResolveDownloadActivation(persisted, {
+		.enabled = Override::Disabled,
+		.startupResume = Override::Enabled,
+	});
+	const auto invalid = Storage::ResolveDownloadActivation(persisted, {
+		.enabled = Override::Invalid,
+		.startupResume = Override::Invalid,
+	});
+	const auto cleared = Storage::ResolveDownloadActivation(persisted, {});
+	const auto manual = Storage::ResolveDownloadActivation({}, { .enabled = Override::Enabled });
+	const auto startupOff = Storage::ResolveDownloadActivation(persisted, {
+		.startupResume = Override::Disabled,
+	});
+	Check(!disabled.enabled && !disabled.startupResume
+		&& invalid.enabled && invalid.startupResume && cleared.enabled && cleared.startupResume
+		&& manual.enabled && !manual.startupResume && startupOff.enabled && !startupOff.startupResume,
+		"valid overrides take precedence without rewriting preferences");
+	Check(!Storage::ResolveDownloadActivation({ .startupResume = true }, {}).startupResume,
+		"the saved startup choice can exist while the effective feature is off");
+	Check(!Storage::DownloadOverrideValue(Override::Absent).value_or(false)
+		&& !Storage::DownloadOverrideValue(Override::Invalid).value_or(false)
+		&& Storage::DownloadOverrideValue(Override::Enabled).value_or(false),
+		"tracing is explicit and defaults to off");
+	Check(Storage::PendingDownloadMayAutoResume(State::Downloading)
+		&& Storage::PendingDownloadMayAutoResume(State::Interrupted)
+		&& Storage::PendingDownloadMayAutoResume(State::Finalizing)
+		&& !Storage::PendingDownloadMayAutoResume(State::Paused)
+		&& !Storage::PendingDownloadMayAutoResume(State::Unavailable)
+		&& !Storage::PendingDownloadMayAutoResume(State::Cancelling),
+		"restoring jobs preserves manual pause and terminal intent");
+
+	Check(Storage::ConfirmDownloadCancellation(true, false, true)
+		&& Storage::ConfirmDownloadCancellation(true, true, false)
+		&& !Storage::ConfirmDownloadCancellation(true, false, false)
+		&& !Storage::ConfirmDownloadCancellation(false, false, true),
+		"individual preference and mandatory bulk confirmation are independent");
+	Check(Storage::ShowDownloadIndicatorEntry(false, true, false)
+		&& Storage::ShowDownloadIndicatorEntry(true, true, false)
+		&& Storage::ShowDownloadIndicatorEntry(true, false, true)
+		&& !Storage::ShowDownloadIndicatorEntry(true, false, false),
+		"hide idle pending entries without hiding active and ordinary transfers");
+
+	Check(Storage::IsPendingDownloadArtifactName(u".64gram-003d241d-d0e8-43a8-9c35-63b2d944274b.part"_s)
+		&& Storage::IsPendingDownloadArtifactName(u".64GRAM-003D241D-D0E8-43A8-9C35-63B2D944274B.PART.RESUME"_s)
+		&& !Storage::IsPendingDownloadArtifactName(u"movie.part"_s)
+		&& !Storage::IsPendingDownloadArtifactName(u".64gram-example.part"_s),
+		"saved download names cannot claim the application-owned staging namespace");
+#ifdef Q_OS_WIN
+	Check(Storage::IsPendingDownloadArtifactName(u".64gram-003d241d-d0e8-43a8-9c35-63b2d944274b.part. "_s)
+		&& Storage::IsPendingDownloadArtifactName(u".64gram-003d241d-d0e8-43a8-9c35-63b2d944274b.part:other"_s),
+		"Windows alternate filename spellings cannot claim staging files");
+#endif
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -735,6 +869,8 @@ int main(int argc, char **argv) {
 	TestStreamingMaximumOffsets();
 	TestDownloadActions();
 	TestDownloadPresentation();
+	TestDownloadPreferences();
+	TestDownloadOverridesAndPolicy();
 	qInfo("Persistent file sink tests passed.");
 	return EXIT_SUCCESS;
 }

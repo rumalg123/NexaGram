@@ -44,6 +44,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "data/components/sponsored_messages.h"
 #include "data/data_document.h"
+#include "data/data_file_click_handler.h"
 #include "data/data_drafts.h"
 #include "data/data_folder.h"
 #include "data/data_forum.h"
@@ -4156,7 +4157,7 @@ void InnerWidget::fillSearchResultMenu(
 	if (const auto document = media ? media->document() : nullptr) {
 		if (document->loading()) {
 			menu->addAction(tr::lng_context_cancel_download(tr::now), [=] {
-				document->cancel();
+				DocumentCancelClickHandler::Cancel(document);
 			}, &st::menuIconCancel);
 		} else {
 			const auto filepath = document->filepath(true);

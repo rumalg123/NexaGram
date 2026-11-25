@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/stickers_list_footer.h"
 #include "data/data_photo.h"
 #include "data/data_document.h"
+#include "data/data_file_click_handler.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "data/data_session.h"
 #include "data/data_user.h"
@@ -535,7 +536,7 @@ void GifsListWidget::selectInlineResult(
 			});
 		} else if (!preview.usingThumbnail()) {
 			if (preview.loading()) {
-				document->cancel();
+				DocumentCancelClickHandler::Cancel(document);
 			} else {
 				document->save(
 					document->stickerOrGifOrigin(),

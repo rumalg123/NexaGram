@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
 #include "core/application.h"
+#include "core/core_download_settings.h"
 #include "core/mime_type.h"
 #include "ui/controls/download_bar.h"
 #include "ui/text/format_song_document_name.h"
@@ -177,7 +178,6 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	auto &data = _sessions.emplace(session, SessionData()).first->second;
 	data.downloaded = deserialize(session);
 	data.resolveNeeded = data.downloaded.size();
-	loadPending(session);
 
 	session->data().documentLoadProgress(
 	) | rpl::filter([=](not_null<DocumentData*> document) {
@@ -1355,7 +1355,7 @@ void DownloadManager::untrack(not_null<Main::Session*> session) {
 
 rpl::producer<Ui::DownloadBarProgress> MakeDownloadBarProgress() {
 	auto &manager = Core::App().downloadManager();
-	if (!Storage::PendingDownloadsEnabled()) {
+	if (!Core::App().downloadSettings().activation().enabled) {
 		return manager.loadingProgressValue(
 		) | rpl::map([](const DownloadProgress &progress) {
 			return Ui::DownloadBarProgress{
@@ -1455,27 +1455,25 @@ rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
 
 		const auto notify = [=, &manager] {
 			auto content = Ui::DownloadBarContent();
-			auto single = (const Data::DownloadObject*) nullptr;
+			auto single = (const DownloadObject*) nullptr;
+			const auto showPending = Core::App().downloadSettings().preferences().pendingIndicator;
 			for (const auto id : manager.loadingList()) {
 				if (id->hiddenByView) {
-					if (!Storage::PendingDownloadsEnabled()) {
-						break;
-					}
+					continue;
+				}
+				const auto pending = id->done ? std::nullopt : manager.pendingView(id->pending);
+				const auto transferring = pending && (pending->transfer.status
+					== Storage::DownloadStatus::Downloading);
+				if (!Storage::ShowDownloadIndicatorEntry(bool(pending), transferring, showPending)) {
 					continue;
 				}
 				if (!single) {
 					single = &id->object;
 				}
 				++content.count;
-				if (id->done) {
-					++content.done;
-				} else if (const auto pending = manager.pendingView(id->pending)) {
-					++content.pending;
-					content.transferring += (pending->transfer.status
-						== Storage::DownloadStatus::Downloading);
-				} else {
-					++content.transferring;
-				}
+				content.done += id->done;
+				content.pending += bool(pending);
+				content.transferring += !id->done && (!pending || transferring);
 			}
 			if (content.count == 1) {
 				const auto document = single->document;
@@ -1513,7 +1511,8 @@ rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
 
 		rpl::merge(
 			manager.loadingListChanges(),
-			manager.pendingViewsChanged()
+			manager.pendingViewsChanged(),
+			Core::App().downloadSettings().changes()
 		) | rpl::filter([=] {
 			return !state->scheduled;
 		}) | rpl::on_next(state->push, lifetime);

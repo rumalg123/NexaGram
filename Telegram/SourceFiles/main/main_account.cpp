@@ -142,7 +142,8 @@ void Account::createSession(
 		user,
 		QByteArray(),
 		0,
-		settings ? std::move(settings) : std::make_unique<SessionSettings>());
+		settings ? std::move(settings) : std::make_unique<SessionSettings>(),
+		false);
 }
 
 void Account::createSession(
@@ -183,14 +184,16 @@ void Account::createSession(
 			MTPlong()), // linked_community_id
 		serialized,
 		streamVersion,
-		std::move(settings));
+		std::move(settings),
+		true);
 }
 
 void Account::createSession(
 		const MTPUser &user,
 		QByteArray serialized,
 		int streamVersion,
-		std::unique_ptr<SessionSettings> settings) {
+		std::unique_ptr<SessionSettings> settings,
+		bool restoredFromStorage) {
 	Expects(_mtp != nullptr);
 	Expects(_session == nullptr);
 	Expects(_sessionValue.current() == nullptr);
@@ -199,6 +202,7 @@ void Account::createSession(
 	if (!serialized.isEmpty()) {
 		local().readSelf(_session.get(), serialized, streamVersion);
 	}
+	Core::App().downloadManager().loadPending(_session.get(), restoredFromStorage);
 	_sessionValue = _session.get();
 
 	Ensures(_session != nullptr);

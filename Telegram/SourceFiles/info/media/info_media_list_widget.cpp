@@ -1441,7 +1441,7 @@ void ListWidget::paintEvent(QPaintEvent *e) {
 }
 
 bool ListWidget::downloadSelectionEnabled() const {
-	return _controller->isDownloads() && Storage::PendingDownloadsEnabled();
+	return _controller->isDownloads();
 }
 
 bool ListWidget::handleDownloadSelectionPress(QMouseEvent *e) {
@@ -1687,7 +1687,11 @@ void ListWidget::showContextMenu(
 					Downloads::ActionText(action,
 						pending->transfer.status),
 					[pendingId, action] {
-						Core::App().downloadManager().actOnPending(pendingId, action);
+						if (action == Action::Cancel) {
+							Data::RequestPendingDownloadCancellation(pendingId);
+						} else {
+							Core::App().downloadManager().actOnPending(pendingId, action);
+						}
 					},
 					icon);
 			}
@@ -1714,7 +1718,7 @@ void ListWidget::showContextMenu(
 			_contextMenu->addAction(
 				tr::lng_context_cancel_download(tr::now),
 				[document] {
-					document->cancel();
+					DocumentCancelClickHandler::Cancel(document);
 				},
 				&st::menuIconCancel);
 		} else {

@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/file_download.h"
 
 #include "data/data_document.h"
+#include "data/data_download_manager.h"
 #include "data/data_session.h"
 #include "data/data_file_origin.h"
 #include "mainwidget.h"
@@ -138,7 +139,9 @@ void FileLoader::finishWithBytes(const QByteArray &data) {
 	_data = OwningBytes(data);
 	_localStatus = LocalStatus::Loaded;
 	if (!_filename.isEmpty() && _toCache == LoadToCacheAsWell) {
-		if (!_fileIsOpen) _fileIsOpen = _file.open(QIODevice::WriteOnly);
+		if (!_fileIsOpen) {
+			openOutputFile();
+		}
 		if (!_fileIsOpen) {
 			cancel(FailureReason::FileWriteFailure);
 			return;
@@ -266,12 +269,19 @@ bool FileLoader::checkForOpen() {
 		|| _fileIsOpen) {
 		return true;
 	}
-	_fileIsOpen = _file.open(QIODevice::WriteOnly);
+	openOutputFile();
 	if (_fileIsOpen) {
 		return true;
 	}
 	cancel(FailureReason::FileWriteFailure);
 	return false;
+}
+
+void FileLoader::openOutputFile() {
+	using Destination = Data::DownloadManager::PendingDestination;
+	if (Core::App().downloadManager().pendingDestination(_filename) == Destination::Available) {
+		_fileIsOpen = _file.open(QIODevice::WriteOnly);
+	}
 }
 
 void FileLoader::loadLocal(const Storage::Cache::Key &key) {
@@ -446,7 +456,7 @@ bool FileLoader::finalizeResult() {
 	}
 	if (!_filename.isEmpty() && (_toCache == LoadToCacheAsWell)) {
 		if (!_fileIsOpen) {
-			_fileIsOpen = _file.open(QIODevice::WriteOnly);
+			openOutputFile();
 		}
 		_file.seek(0);
 		if (!_fileIsOpen || _file.write(_data) != qint64(_data.size())) {

@@ -1036,6 +1036,10 @@ public:
 		writePrefImpl<Type>(key, std::forward<Other>(value));
 	}
 	void clearPref(std::string_view key);
+	[[nodiscard]] bool writePrefChecked(
+		std::string_view key,
+		const QByteArray &value,
+		Fn<bool()> persist);
 
 	template <typename Type, typename Other = Type>
 	[[nodiscard]] Type readPref(
@@ -1056,7 +1060,10 @@ private:
 	template <typename Type>
 	[[nodiscard]] std::optional<Type> readPrefImpl(std::string_view key);
 
-	void writePrefGeneric(std::string_view key, const QByteArray &value);
+	void writePrefGeneric(
+		std::string_view key,
+		const QByteArray &value,
+		bool scheduleSave = true);
 	[[nodiscard]] std::optional<QByteArray> readPrefGeneric(
 		std::string_view key);
 

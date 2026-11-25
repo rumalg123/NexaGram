@@ -13,6 +13,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/file_utilities.h"
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "core/core_download_settings.h"
+#include "boxes/abstract_box.h"
+#include "lang/lang_keys.h"
+#include "ui/boxes/confirm_box.h"
+#include "ui/layers/generic_box.h"
+#include "ui/layers/show.h"
+#include "styles/style_layers.h"
 #include "data/data_document.h"
 #include "data/data_document_resolver.h"
 #include "data/data_session.h"
@@ -93,7 +100,7 @@ void DocumentSaveClickHandler::Save(
 		return;
 	}
 	InvokeQueued(qApp, crl::guard(&data->session(), [=] {
-		if (Storage::PendingDownloadsEnabled()) {
+		if (Core::App().downloadSettings().activation().enabled) {
 			if (const auto item = std::get_if<FullMsgId>(&origin.data)) {
 				if (Core::App().downloadManager().resumePending(data, *item)) {
 					return;
@@ -164,6 +171,58 @@ void DocumentSaveClickHandler::onClickImpl() const {
 	SaveAndTrack(context(), document());
 }
 
+void Data::RequestPendingDownloadCancellation(
+		const Storage::PendingDownloadId &id,
+		const Ui::Show *show) {
+	auto &manager = Core::App().downloadManager();
+	const auto view = manager.pendingView(id);
+	if (!view || !view->canCancel) {
+		return;
+	}
+	const auto confirm = Core::App().downloadSettings().preferences().confirmCancellation;
+	if (!Storage::ConfirmDownloadCancellation(true, false, confirm)) {
+		manager.actOnPending(id, Storage::DownloadAction::Cancel);
+		return;
+	}
+	static auto confirmation = base::weak_qptr<Ui::GenericBox>();
+	if (confirmation) {
+		return;
+	}
+	auto box = Ui::MakeConfirmBox({
+		.text = tr::lng_downloads_cancel_individual(tr::now),
+		.confirmed = [id](Fn<void()> close) {
+			close();
+			Core::App().downloadManager().actOnPending(id, Storage::DownloadAction::Cancel);
+		},
+		.confirmText = tr::lng_context_cancel_download(tr::now),
+		.confirmStyle = &st::attentionBoxButton,
+	});
+	confirmation = show
+		? show->show(std::move(box))
+		: Ui::show(std::move(box), Ui::LayerOption::KeepOther);
+}
+
+QString Data::PendingDownloadDestinationError(const QString &path) {
+	using Destination = DownloadManager::PendingDestination;
+	switch (Core::App().downloadManager().pendingDestination(path)) {
+	case Destination::Available: return {};
+	case Destination::Checking: return tr::lng_downloads_destination_checking(tr::now);
+	case Destination::Reserved: return tr::lng_downloads_destination_reserved(tr::now);
+	}
+	return {};
+}
+
+void DocumentCancelClickHandler::Cancel(
+		not_null<DocumentData*> data,
+		const Ui::Show *show) {
+	const auto id = data->persistentDownloadId();
+	if (id.isNull()) {
+		data->cancel();
+	} else {
+		Data::RequestPendingDownloadCancellation({ data->session().uniqueId(), id }, show);
+	}
+}
+
 DocumentCancelClickHandler::DocumentCancelClickHandler(
 	not_null<DocumentData*> document,
 	Fn<void(FullMsgId)> &&callback,
@@ -179,7 +238,7 @@ void DocumentCancelClickHandler::onClickImpl() const {
 	} else if (data->uploading() && _handler) {
 		_handler(context());
 	} else {
-		data->cancel();
+		Cancel(data);
 	}
 }
 
