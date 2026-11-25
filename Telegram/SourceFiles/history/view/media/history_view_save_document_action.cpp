@@ -9,6 +9,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/call_delayed.h"
 #include "data/data_document.h"
+#include "core/application.h"
+#include "data/data_download_manager.h"
+#include "main/main_session.h"
+#include "info/downloads/info_downloads_status.h"
 #include "data/data_file_click_handler.h"
 #include "data/data_file_origin.h"
 #include "data/data_peer.h"
@@ -36,15 +40,21 @@ namespace HistoryView {
 void AddDownloadPauseResumeAction(
 		const Ui::Menu::MenuCallback &addAction,
 		not_null<DocumentData*> document) {
-	if (document->canPauseDownload()) {
-		addAction(u"Pause download"_q, [=] {
-			document->pauseDownload();
-		}, &st::menuIconDownload);
-	} else if (document->canResumeDownload()) {
-		addAction(u"Resume download"_q, [=] {
-			document->resumeDownload();
-		}, &st::menuIconDownload);
+	const auto id = Storage::PendingDownloadId{
+		document->session().uniqueId(),
+		document->persistentDownloadId(),
+	};
+	const auto view = Core::App().downloadManager().pendingView(id);
+	if (!view || (!view->canPause && !view->canResume)) {
+		return;
 	}
+	const auto action = view->canPause
+		? Storage::DownloadAction::Pause
+		: Storage::DownloadAction::Resume;
+	addAction(Info::Downloads::ActionText(action,
+		view->transfer.status), [=] {
+		Core::App().downloadManager().actOnPending(id, action);
+	}, &st::menuIconDownload);
 }
 
 void AddSaveDocumentAction(

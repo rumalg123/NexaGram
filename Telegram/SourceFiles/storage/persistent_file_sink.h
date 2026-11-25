@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "storage/download_presentation.h"
+
 #include <QtCore/QBitArray>
 #include <QtCore/QByteArray>
 #include <QtCore/QDataStream>
@@ -93,6 +95,7 @@ public:
 	[[nodiscard]] Result cancel();
 
 	[[nodiscard]] const QBitArray &committed() const;
+	[[nodiscard]] qint64 committedSize() const;
 	[[nodiscard]] qint64 writtenSize() const;
 	[[nodiscard]] QString stagingPath() const;
 	[[nodiscard]] QString checkpointPath() const;
@@ -113,11 +116,14 @@ private:
 	QBitArray _written;
 	QBitArray _committed;
 	qint64 _writtenSize = 0;
+	qint64 _committedSize = 0;
 	qint64 _pendingBytes = 0;
 	bool _checkpointDirty = false;
 	bool _published = false;
 	bool _created = false;
 
 };
+
+[[nodiscard]] DownloadIssue DownloadIssueFromSink(PersistentFileSink::Result result);
 
 } // namespace Storage

@@ -67,7 +67,7 @@ StreamedFileDownloader::StreamedFileDownloader(
 			if (!part.valid(_fullSize)) {
 				failPersistent(PersistentFileSink::Result::TransferFailed);
 			} else {
-				feedPersistentPart(part.offset, part.bytes);
+				feedPersistentPart(part.offset, part.bytes, delivery.downloadNetwork);
 			}
 		} else if (!part.valid(_fullSize)) {
 			cancel(FailureReason::OtherFailure);

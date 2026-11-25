@@ -69,10 +69,13 @@ void DownloadBar::show(DownloadBarContent &&content) {
 	if (!content.count) {
 		return;
 	}
-	if (!_radial.animating()) {
+	_content = content;
+	const auto idle = _content.pending && !_content.transferring;
+	if (idle) {
+		_radial.stop();
+	} else if (!_radial.animating()) {
 		_radial.start(computeProgress());
 	}
-	_content = content;
 	const auto finished = (_content.done == _content.count);
 	if (_finished != finished) {
 		_finished = finished;
@@ -138,7 +141,9 @@ void DownloadBar::refreshIcon() {
 void DownloadBar::refreshInfo(const DownloadBarProgress &progress) {
 	_info.setMarkedText(
 		st::downloadInfoStyle,
-		(progress.ready < progress.total
+		(_content.pending && !_content.transferring
+			? Text::Link(tr::lng_downloads_pending_tray(tr::now))
+			: progress.ready < progress.total
 			? tr::marked(
 				FormatDownloadText(progress.ready, progress.total))
 			: Text::Link((_content.count > 1)

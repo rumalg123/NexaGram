@@ -309,6 +309,7 @@ void PersistentFileSink::initializeCoverage() {
 	_committed = QBitArray(parts);
 	_digests = QByteArray(parts * kDigestSize, '\0');
 	_writtenSize = 0;
+	_committedSize = 0;
 	_pendingBytes = 0;
 	_created = true;
 	_checkpointDirty = true;
@@ -378,6 +379,7 @@ auto PersistentFileSink::checkpoint() -> Result {
 		return Result::CheckpointFailed;
 	}
 	_committed = _written;
+	_committedSize = _writtenSize;
 	_pendingBytes = 0;
 	_checkpointDirty = false;
 	log("checkpoint committed");
@@ -470,6 +472,7 @@ auto PersistentFileSink::readCheckpoint(bool verify) -> Result {
 		}
 	}
 	_written = _committed = std::move(bitmap);
+	_committedSize = _writtenSize;
 	_digests = std::move(digests);
 	_pendingBytes = 0;
 	return Result::Ok;
@@ -605,6 +608,26 @@ auto PersistentFileSink::cancel() -> Result {
 
 const QBitArray &PersistentFileSink::committed() const {
 	return _committed;
+}
+
+DownloadIssue DownloadIssueFromSink(PersistentFileSink::Result result) {
+	using Result = PersistentFileSink::Result;
+	switch (result) {
+	case Result::Ok: return DownloadIssue::None;
+	case Result::Missing: return DownloadIssue::MissingFile;
+	case Result::Replaced: return DownloadIssue::ChangedFile;
+	case Result::InvalidCheckpoint:
+	case Result::CheckpointFailed: return DownloadIssue::Checkpoint;
+	case Result::SeekFailed:
+	case Result::WriteFailed:
+	case Result::RemoveFailed: return DownloadIssue::Storage;
+	case Result::PublishFailed: return DownloadIssue::Destination;
+	default: return DownloadIssue::Transfer;
+	}
+}
+
+qint64 PersistentFileSink::committedSize() const {
+	return _committedSize;
 }
 
 qint64 PersistentFileSink::writtenSize() const {

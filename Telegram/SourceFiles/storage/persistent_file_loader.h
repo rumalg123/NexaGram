@@ -24,6 +24,7 @@ public:
 	[[nodiscard]] bool persistentCanSuspend() const;
 	[[nodiscard]] bool persistentCanResume() const;
 	[[nodiscard]] bool isPersistent() const;
+	[[nodiscard]] std::optional<DownloadTransferView> persistentTransferView() const;
 	void suspendPersistent(bool manual = true, Fn<void()> done = nullptr);
 	void resumePersistent(const QByteArray &reference);
 	void stopPersistentForUnavailableSource();
@@ -45,7 +46,7 @@ protected:
 	bool preservePersistentOnDestruction();
 	[[nodiscard]] bool persistentCanRequest(int limit) const;
 	[[nodiscard]] int64 takePersistentOffset();
-	bool feedPersistentPart(int64 offset, const QByteArray &bytes);
+	bool feedPersistentPart(int64 offset, const QByteArray &bytes, bool network = true);
 	void failPersistent(PersistentFileSink::Result result);
 
 private:
@@ -66,6 +67,7 @@ private:
 	void checkpointPersistent();
 	void publishPersistent();
 	void stopPersistentRequests();
+	void notifyPersistentProgress(bool transition);
 
 	std::unique_ptr<Persistent> _persistent;
 

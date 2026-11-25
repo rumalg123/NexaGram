@@ -56,6 +56,9 @@ struct PersistentFileLoader::Persistent {
 	State state = State::Idle;
 	Storage::PersistentDownloadRequests requests;
 	int64 ready = 0;
+	int64 committed = 0;
+	DownloadRate rate;
+	DownloadIssue issue = DownloadIssue::None;
 	bool checkpointQueued = false;
 };
 
@@ -162,6 +165,45 @@ bool PersistentFileLoader::persistentCanResume() const {
 		|| _persistent->state == Persistent::State::Failed);
 }
 
+std::optional<DownloadTransferView> PersistentFileLoader::persistentTransferView() const {
+	if (!_persistent) {
+		return std::nullopt;
+	}
+	using State = Persistent::State;
+	const auto &state = *_persistent;
+	const auto status = [&] {
+		switch (state.state) {
+		case State::Idle: return DownloadStatus::Preparing;
+		case State::Opening:
+			return state.job.stagingIdentity.isEmpty()
+				? DownloadStatus::Preparing
+				: DownloadStatus::Verifying;
+		case State::Running: return DownloadStatus::Downloading;
+		case State::Suspending: return DownloadStatus::Pausing;
+		case State::Suspended: return (state.job.state == PendingState::Paused)
+			? DownloadStatus::Paused : DownloadStatus::Interrupted;
+		case State::Failed: return (state.job.state == PendingState::Unavailable)
+			? DownloadStatus::Unavailable : DownloadStatus::Failed;
+		case State::Publishing: return DownloadStatus::Finalizing;
+		}
+		return DownloadStatus::Preparing;
+	}();
+	return DownloadTransferView{
+		.status = status,
+		.issue = state.issue,
+		.written = state.ready,
+		.committed = state.committed,
+		.bytesPerSecond = (status == DownloadStatus::Downloading)
+			? state.rate.rate(crl::now()) : 0,
+	};
+}
+
+void PersistentFileLoader::notifyPersistentProgress(bool transition) {
+	Core::App().downloadManager().pendingLoaderUpdated(
+		transition, { session().uniqueId(), _persistent->id });
+	notifyAboutProgress();
+}
+
 void PersistentFileLoader::resumePersistent(const QByteArray &reference) {
 	if (persistentCanResume()) {
 		updatePersistentReference(reference);
@@ -180,6 +222,9 @@ void PersistentFileLoader::stopPersistentForUnavailableSource() {
 void PersistentFileLoader::openPersistent(bool resume) {
 	auto &state = *_persistent;
 	state.state = Persistent::State::Opening;
+	state.issue = DownloadIssue::None;
+	state.rate = {};
+	Core::App().downloadManager().pendingLoaderUpdated(true);
 	state.requests.invalidate();
 	const auto generation = state.requests.generation();
 	auto done = crl::guard(static_cast<FileLoader*>(this), [=](
@@ -269,7 +314,7 @@ void PersistentFileLoader::persistentOpened(
 		}
 	}
 	state.requests.reset(std::move(present));
-	state.ready = size;
+	state.ready = state.committed = size;
 	state.state = Persistent::State::Running;
 	if (Core::Quitting()) {
 		suspendPersistent(false);
@@ -277,7 +322,7 @@ void PersistentFileLoader::persistentOpened(
 	}
 	state.timer.callEach(kCheckpointInterval);
 	const auto weak = base::make_weak(static_cast<FileLoader*>(this));
-	notifyAboutProgress();
+	notifyPersistentProgress(true);
 	if (weak && persistentCanSuspend()) {
 		if (size == _fullSize) {
 			publishPersistent();
@@ -315,11 +360,13 @@ void PersistentFileLoader::suspendPersistent(bool manual, Fn<void()> finished) {
 		state.job.state = intent;
 	}
 	state.state = Persistent::State::Suspending;
+	Core::App().downloadManager().pendingLoaderUpdated(true);
 	stopPersistentRequests();
 	const auto generation = state.requests.generation();
 	auto done = crl::guard(static_cast<FileLoader*>(this), [=, finished = std::move(finished)](
 			Sink::Result result,
-			int64 size) {
+			int64 size,
+			int64 committed) {
 		if (finished) {
 			finished();
 		}
@@ -328,10 +375,12 @@ void PersistentFileLoader::suspendPersistent(bool manual, Fn<void()> finished) {
 		}
 		Storage::TracePendingDownload(_persistent->id, "suspend checkpoint", int(result));
 		_persistent->ready = size;
+		_persistent->committed = committed;
+		_persistent->issue = DownloadIssueFromSink(result);
 		_persistent->state = (result == Sink::Result::Ok)
 			? Persistent::State::Suspended
 			: Persistent::State::Failed;
-		notifyAboutProgress();
+		notifyPersistentProgress(true);
 	});
 	state.worker.with([=, cancelled = state.cancelled](Sink &sink) mutable {
 		if (cancelled->load()) {
@@ -339,8 +388,8 @@ void PersistentFileLoader::suspendPersistent(bool manual, Fn<void()> finished) {
 		}
 		const auto result = sink.suspend();
 		crl::on_main([done = std::move(done), result,
-				size = sink.writtenSize()]() mutable {
-			done(result, size);
+				size = sink.writtenSize(), committed = sink.committedSize()]() mutable {
+			done(result, size, committed);
 		});
 	});
 }
@@ -352,13 +401,17 @@ void PersistentFileLoader::checkpointPersistent() {
 	}
 	state.checkpointQueued = true;
 	const auto generation = state.requests.generation();
-	auto done = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result) {
+	auto done = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result, int64 committed) {
 		if (_persistent->requests.generation() != generation) {
 			return;
 		}
 		_persistent->checkpointQueued = false;
+		_persistent->committed = committed;
 		if (result != Sink::Result::Ok) {
 			failPersistent(result);
+		} else {
+			Core::App().downloadManager().pendingLoaderUpdated(
+				false, { session().uniqueId(), _persistent->id });
 		}
 	});
 	state.worker.with([=, cancelled = state.cancelled](Sink &sink) mutable {
@@ -366,8 +419,8 @@ void PersistentFileLoader::checkpointPersistent() {
 			return;
 		}
 		const auto result = sink.checkpoint();
-		crl::on_main([done = std::move(done), result]() mutable {
-			done(result);
+		crl::on_main([done = std::move(done), result, committed = sink.committedSize()]() mutable {
+			done(result, committed);
 		});
 	});
 }
@@ -376,6 +429,7 @@ void PersistentFileLoader::failPersistent(Sink::Result result) {
 	auto &state = *_persistent;
 	stopPersistentRequests();
 	state.state = Persistent::State::Failed;
+	state.issue = DownloadIssueFromSink(result);
 	auto &manager = Core::App().downloadManager();
 	const auto retry = (state.job.state == PendingState::Initializing
 		|| state.job.state == PendingState::Paused
@@ -396,12 +450,13 @@ void PersistentFileLoader::failPersistent(Sink::Result result) {
 		}
 	});
 	qInfo() << "Persistent download" << state.id << "failed" << int(result);
-	notifyAboutProgress();
+	notifyPersistentProgress(true);
 }
 
 void PersistentFileLoader::publishPersistent() {
 	auto &state = *_persistent;
 	state.state = Persistent::State::Publishing;
+	Core::App().downloadManager().pendingLoaderUpdated(true);
 	stopPersistentRequests();
 	auto prepared = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result) {
 		if (result != Sink::Result::Ok
@@ -441,7 +496,10 @@ void PersistentFileLoader::publishPersistent() {
 	});
 }
 
-bool PersistentFileLoader::feedPersistentPart(int64 offset, const QByteArray &bytes) {
+bool PersistentFileLoader::feedPersistentPart(
+		int64 offset,
+		const QByteArray &bytes,
+		bool network) {
 	if (!persistentCanSuspend()) {
 		return false;
 	}
@@ -449,7 +507,8 @@ bool PersistentFileLoader::feedPersistentPart(int64 offset, const QByteArray &by
 	const auto generation = state.requests.generation();
 	auto done = crl::guard(static_cast<FileLoader*>(this), [=](
 			Sink::Result result,
-			int64 size) {
+			int64 size,
+			int64 committed) {
 		if (_persistent->requests.generation() != generation) {
 			return;
 		}
@@ -465,13 +524,17 @@ bool PersistentFileLoader::feedPersistentPart(int64 offset, const QByteArray &by
 			qInfo() << "Persistent download" << state.id
 				<< "accepted write offset" << offset << "written bytes" << size;
 		}
+		if (network && size > state.ready) {
+			state.rate.accept(size - state.ready, crl::now());
+		}
 		state.ready = size;
+		state.committed = committed;
 		if (size == _fullSize && !state.requests.outstanding()) {
 			publishPersistent();
 			return;
 		}
 		const auto weak = base::make_weak(static_cast<FileLoader*>(this));
-		notifyAboutProgress();
+		notifyPersistentProgress(false);
 		if (weak && persistentCanSuspend()) {
 			persistentPartWritten(offset);
 		}
@@ -486,8 +549,8 @@ bool PersistentFileLoader::feedPersistentPart(int64 offset, const QByteArray &by
 		}
 		const auto result = sink.write(offset, owned);
 		crl::on_main([done = std::move(done), result,
-				size = sink.writtenSize()]() mutable {
-			done(result, size);
+				size = sink.writtenSize(), committed = sink.committedSize()]() mutable {
+			done(result, size, committed);
 		});
 	});
 	return true;

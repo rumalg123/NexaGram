@@ -873,9 +873,8 @@ Reader::Reader(
 			: _remoteRequests.remove(Consumer::Playback, offset);
 		const auto playback = _streamingActive && (forPlayback || !isRemoteLoader());
 		const auto download = _downloadAttachment.active();
-		if (!failed) {
-			_remoteRequests.remove(Consumer::Download, offset);
-		}
+		const auto downloadNetwork = !failed
+			&& _remoteRequests.remove(Consumer::Download, offset);
 		if (playback) {
 			_loadedParts.emplace(part);
 			if (const auto waiting = _waiting.exchange(nullptr)) {
@@ -883,7 +882,7 @@ Reader::Reader(
 			}
 		}
 		if (download && (!failed || !_remoteRequests.empty(Consumer::Download))) {
-			deliverDownloadPart(download, std::move(part), "network delivery");
+			deliverDownloadPart(download, std::move(part), "network delivery", downloadNetwork);
 		}
 	}, _lifetime);
 
@@ -1016,7 +1015,8 @@ void Reader::updateDownloadReference(const QByteArray &reference) {
 void Reader::deliverDownloadPart(
 		Attachment attachment,
 		LoadedPart part,
-		const char *source) {
+		const char *source,
+		bool downloadNetwork) {
 	const auto failed = part.offset == LoadedPart::kFailedOffset;
 	if (failed
 		? !_downloadAttachment.matches(attachment)
@@ -1035,7 +1035,7 @@ void Reader::deliverDownloadPart(
 		qInfo() << "Persistent download" << _downloadTraceId << source
 			<< "attachment" << attachment << "offset" << part.offset;
 	}
-	_partsForDownloader.fire({ attachment, std::move(part) });
+	_partsForDownloader.fire({ attachment, std::move(part), downloadNetwork });
 }
 
 void Reader::traceNetworkOffset(uint32 offset, const char *consumer) const {

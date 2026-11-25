@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/rp_widget.h"
 #include "ui/widgets/scroll_area.h"
 #include "base/unique_qptr.h"
+#include "storage/download_presentation.h"
 
 namespace Ui {
 class VerticalLayout;
@@ -30,6 +31,7 @@ namespace Downloads {
 
 class Memento;
 class EmptyWidget;
+class Provider;
 
 class InnerWidget final : public Ui::RpWidget {
 public:
@@ -47,6 +49,8 @@ public:
 	rpl::producer<Ui::ScrollToRequest> scrollToRequests() const;
 	rpl::producer<SelectedItems> selectedListValue() const;
 	void selectionAction(SelectionAction action);
+	void setDownloadFilter(Storage::DownloadFilter filter);
+	void selectAllResults();
 
 	~InnerWidget();
 
@@ -66,6 +70,7 @@ private:
 
 	object_ptr<Media::ListWidget> _list = { nullptr };
 	object_ptr<EmptyWidget> _empty;
+	Provider *_provider = nullptr;
 
 	bool _inResize = false;
 

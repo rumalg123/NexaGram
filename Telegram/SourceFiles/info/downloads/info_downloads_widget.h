@@ -17,6 +17,7 @@ class SearchFieldController;
 namespace Info::Downloads {
 
 class InnerWidget;
+class ManagementBar;
 
 class Memento final : public ContentMemento {
 public:
@@ -61,6 +62,9 @@ public:
 
 	rpl::producer<QString> title() override;
 
+protected:
+	void resizeEvent(QResizeEvent *e) override;
+
 private:
 	void saveState(not_null<Memento*> memento);
 	void restoreState(not_null<Memento*> memento);
@@ -68,6 +72,7 @@ private:
 	std::shared_ptr<ContentMemento> doCreateMemento() override;
 
 	InnerWidget *_inner = nullptr;
+	ManagementBar *_management = nullptr;
 
 };
 

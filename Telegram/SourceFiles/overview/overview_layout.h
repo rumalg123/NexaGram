@@ -448,6 +448,10 @@ struct DocumentExternalLoading {
 	int64 ready = 0;
 	int64 total = 0;
 	QString status;
+	QString context;
+	bool pause = false;
+	bool actionable = true;
+	bool cancellable = false;
 };
 
 struct DocumentFields {
@@ -456,6 +460,8 @@ struct DocumentFields {
 	bool forceFileLayout = false;
 	Fn<std::optional<DocumentExternalLoading>()> externalLoading;
 	Fn<void()> externalCancel;
+	Fn<QString()> externalTooltip;
+	Fn<void()> externalDiscard;
 };
 
 class Document final : public RadialProgressItem {
@@ -502,11 +508,12 @@ private:
 	[[nodiscard]] auto externalLoading() const
 	-> std::optional<DocumentExternalLoading>;
 	[[nodiscard]] bool activeLoading() const;
+	[[nodiscard]] QRect externalDiscardRect() const;
 
 	not_null<DocumentData*> _data;
 	mutable std::shared_ptr<Data::DocumentMedia> _dataMedia;
 	StatusText _status;
-	ClickHandlerPtr _msgl, _namel;
+	ClickHandlerPtr _msgl, _namel, _externalDiscard;
 
 	const style::OverviewFileLayout &_st;
 	const ::Layout::DocumentGenericPreview _generic;

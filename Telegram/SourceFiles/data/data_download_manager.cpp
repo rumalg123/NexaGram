@@ -158,7 +158,8 @@ struct DownloadManager::DeleteFilesDescriptor {
 };
 
 DownloadManager::DownloadManager()
-: _clearLoadingTimer([=] { clearLoading(); }) {
+: _clearLoadingTimer([=] { clearLoading(); })
+, _pendingViewTimer([=] { flushPendingViews(); }) {
 }
 
 DownloadManager::~DownloadManager() = default;
@@ -273,6 +274,8 @@ void DownloadManager::addLoading(DownloadObject object) {
 		.object = object,
 		.started = pending ? pending->started : computeNextStartDate(),
 		.path = path,
+		.pending = { pending ? object.document->session().uniqueId() : 0,
+			pending ? pending->file.id : QUuid() },
 		.total = size,
 		.hiddenByView = (!shownExists
 			&& item->history()->owner().queryItemVisibility(item)),
@@ -299,7 +302,9 @@ void DownloadManager::addLoadingExternal(
 		DownloadObject object,
 		const QString &path,
 		int64 total,
-		Fn<void()> cancel) {
+		Fn<void()> cancel,
+		Storage::PendingDownloadId pending,
+		DownloadDate started) {
 	Expects(object.item != nullptr);
 	Expects(object.document != nullptr);
 	Expects(cancel != nullptr);
@@ -309,8 +314,9 @@ void DownloadManager::addLoadingExternal(
 
 	data.downloading.push_back({
 		.object = object,
-		.started = computeNextStartDate(),
+		.started = started ? started : computeNextStartDate(),
 		.path = path,
+		.pending = pending,
 		.externalCancel = std::move(cancel),
 		.total = total,
 	});
@@ -568,7 +574,7 @@ void DownloadManager::deleteFiles(const std::vector<GlobalMsgId> &ids) {
 				data.downloading,
 				not_null{ item },
 				ByItem);
-			if (j != end(data.downloading)) {
+			if (j != end(data.downloading) && j->pending.job.isNull()) {
 				cancel(data, j);
 			}
 
@@ -615,8 +621,15 @@ void DownloadManager::deleteAll() {
 			continue;
 		}
 		const auto sessionUniqueId = session->uniqueId();
-		while (!data.downloading.empty()) {
-			cancel(data, data.downloading.end() - 1);
+		while (true) {
+			const auto ordinary = ranges::find_if(
+				rbegin(data.downloading), rend(data.downloading), [](const auto &id) {
+					return id.pending.job.isNull();
+				});
+			if (ordinary == rend(data.downloading)) {
+				break;
+			}
+			cancel(data, ordinary.base() - 1);
 		}
 		// resolveNeeded / resolveSentTotal index into downloaded, and
 		// resolve requests may still be in flight, so drop them together.
@@ -695,7 +708,9 @@ auto DownloadManager::loadingList() const
 	) | ranges::views::transform([=](const auto &pair) {
 		return ranges::views::all(
 			pair.second.downloading
-		) | ranges::views::transform([](const DownloadingId &id) {
+		) | ranges::views::filter([](const DownloadingId &id) {
+			return id.pending.job.isNull() || id.done || !!id.externalCancel;
+		}) | ranges::views::transform([](const DownloadingId &id) {
 			return &id;
 		});
 	}) | ranges::views::join;
@@ -1335,16 +1350,51 @@ void DownloadManager::untrack(not_null<Main::Session*> session) {
 		remove(i->second, i->second.downloading.end() - 1);
 	}
 	_sessions.erase(i);
+	pendingLoaderUpdated(true);
 }
 
 rpl::producer<Ui::DownloadBarProgress> MakeDownloadBarProgress() {
-	return Core::App().downloadManager().loadingProgressValue(
-	) | rpl::map([=](const DownloadProgress &progress) {
-		return Ui::DownloadBarProgress{
-			.ready = progress.ready,
-			.total = progress.total,
+	auto &manager = Core::App().downloadManager();
+	if (!Storage::PendingDownloadsEnabled()) {
+		return manager.loadingProgressValue(
+		) | rpl::map([](const DownloadProgress &progress) {
+			return Ui::DownloadBarProgress{
+				.ready = progress.ready,
+				.total = progress.total,
+			};
+		});
+	}
+	return [](auto consumer) {
+		auto lifetime = rpl::lifetime();
+		auto &manager = Core::App().downloadManager();
+		const auto update = [=, &manager] {
+			auto bytes = Storage::DownloadByteTotals();
+			for (const auto entry : manager.loadingList()) {
+				if (entry->done || entry->hiddenByView) {
+					continue;
+				}
+				if (const auto pending = manager.pendingView(entry->pending)) {
+					if (pending->transfer.status == Storage::DownloadStatus::Downloading) {
+						bytes.add(pending->transfer.written, pending->total);
+					}
+				} else {
+					bytes.add(entry->ready, entry->total);
+				}
+			}
+			consumer.put_next(Ui::DownloadBarProgress{ bytes.written, bytes.total });
 		};
-	});
+		const auto timer = lifetime.make_state<base::Timer>(update);
+		rpl::merge(
+			manager.loadingProgressValue() | rpl::to_empty,
+			manager.pendingProgressChanged()
+		) | rpl::on_next([=] {
+			if (!timer->isActive()) {
+				timer->callOnce(crl::time(250));
+			}
+		}, lifetime);
+		update();
+		return lifetime;
+	};
 }
 
 rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
@@ -1408,7 +1458,10 @@ rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
 			auto single = (const Data::DownloadObject*) nullptr;
 			for (const auto id : manager.loadingList()) {
 				if (id->hiddenByView) {
-					break;
+					if (!Storage::PendingDownloadsEnabled()) {
+						break;
+					}
+					continue;
 				}
 				if (!single) {
 					single = &id->object;
@@ -1416,6 +1469,12 @@ rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
 				++content.count;
 				if (id->done) {
 					++content.done;
+				} else if (const auto pending = manager.pendingView(id->pending)) {
+					++content.pending;
+					content.transferring += (pending->transfer.status
+						== Storage::DownloadStatus::Downloading);
+				} else {
+					++content.transferring;
 				}
 			}
 			if (content.count == 1) {
@@ -1452,7 +1511,9 @@ rpl::producer<Ui::DownloadBarContent> MakeDownloadBarContent() {
 			});
 		};
 
-		manager.loadingListChanges(
+		rpl::merge(
+			manager.loadingListChanges(),
+			manager.pendingViewsChanged()
 		) | rpl::filter([=] {
 			return !state->scheduled;
 		}) | rpl::on_next(state->push, lifetime);

@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "info/media/info_media_common.h"
 #include "base/weak_ptr.h"
+#include "storage/download_presentation.h"
 
 namespace Data {
 struct DownloadedId;
@@ -45,6 +46,7 @@ public:
 	rpl::producer<> refreshed() override;
 
 	void setSearchQuery(QString query) override;
+	void setDownloadFilter(Storage::DownloadFilter filter);
 	void jumpToMessage(MsgId messageId, Fn<void(FullMsgId)> callback) override;
 
 	std::vector<Media::ListSection> fillSections(
@@ -89,6 +91,8 @@ private:
 		not_null<HistoryItem*> item;
 		int64 started = 0; // unixtime * 1000
 		QString path;
+		Storage::PendingDownloadId pending;
+		QString filename;
 
 		QStringList words;
 		base::flat_set<QChar> letters;
@@ -104,6 +108,7 @@ private:
 	[[nodiscard]] bool searchMode() const;
 	void fillSearchIndex(Element &element);
 	[[nodiscard]] bool computeIsFound(const Element &element) const;
+	[[nodiscard]] bool visible(const Element &element) const;
 
 	void itemRemoved(not_null<const HistoryItem*> item);
 	void markLayoutsStale();
@@ -142,7 +147,7 @@ private:
 
 	QString _query;
 	QStringList _queryWords;
-	int _foundCount = 0;
+	Storage::DownloadFilter _filter = Storage::DownloadFilter::All;
 
 	base::flat_map<not_null<Main::Session*>, rpl::lifetime> _trackedSessions;
 	bool _postponedRefreshSort = false;

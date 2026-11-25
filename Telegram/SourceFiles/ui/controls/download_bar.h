@@ -26,6 +26,8 @@ struct DownloadBarContent {
 	QImage singleThumbnail;
 	int count = 0;
 	int done = 0;
+	int pending = 0;
+	int transferring = 0;
 };
 
 class DownloadBar final {

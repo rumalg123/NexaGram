@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/persistent_file_sink.h"
 #include "storage/pending_downloads.h"
+#include "storage/download_presentation.h"
 #include "media/streaming/media_streaming_download_attachment.h"
 
 #include <QtCore/QCoreApplication>
@@ -17,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QProcess>
 #include <QtCore/QTemporaryDir>
 
+#include <array>
 #include <cstdlib>
 
 #ifdef Q_OS_WIN
@@ -571,10 +573,12 @@ void TestStreamedCheckpoint(const QTemporaryDir &dir) {
 			&& sink.write(0, first) == Result::Ok, "ignore duplicate before writing");
 		Check(sink.committed().count(true) == 0 && sink.suspend() == Result::Ok,
 			"written streaming bytes become durable after checkpoint");
+		Check(sink.committedSize() == kPart + tail.size(), "durable bytes include short tail");
 	}
 	Check(attachment.detach(initial), "suspend streaming batch");
 	auto sink = Sink(fixture);
 	Check(sink.open(true, identity) == Result::Ok, "reopen streaming checkpoint");
+	Check(sink.committedSize() == kPart + tail.size(), "reopen reports verified durable bytes");
 	auto offsets = Storage::PersistentDownloadRequests();
 	offsets.reset(sink.committed());
 	const auto resumed = attachment.attach();
@@ -609,6 +613,99 @@ void TestStreamingMaximumOffsets() {
 		&& !IsCompletePart(size, limit, 0, kPart), "reject oversized final part and past end");
 }
 
+void TestDownloadActions() {
+	using Status = Storage::DownloadStatus;
+	using Action = Storage::DownloadAction;
+	const auto allows = [](Status status, Action action) {
+		return Storage::AllowsDownloadAction(true, status, action);
+	};
+	Check(allows(Status::Downloading, Action::Pause)
+		&& allows(Status::Resolving, Action::Pause)
+		&& allows(Status::Resuming, Action::Pause), "pause active and queued downloads");
+	Check(allows(Status::Paused, Action::Resume)
+		&& allows(Status::Interrupted, Action::Resume)
+		&& allows(Status::Waiting, Action::Resume)
+		&& allows(Status::Failed, Action::Resume), "resume and retry eligible states");
+	Check(!allows(Status::Pausing, Action::Resume)
+		&& !allows(Status::Verifying, Action::Resume)
+		&& !allows(Status::Unavailable, Action::Resume)
+		&& !allows(Status::Finalizing, Action::Cancel), "transitional action restrictions");
+	for (const auto action : { Action::Pause, Action::Resume, Action::Cancel }) {
+		Check(!allows(Status::Completed, action) && !allows(Status::Cancelling, action)
+			&& !Storage::AllowsDownloadAction(false, Status::Downloading, action),
+			"completed, cancelled and unsupported rows are ineligible");
+	}
+	Check(Storage::PendingDownloadTransition(
+		Storage::PendingDownloadState::Interrupted,
+		Storage::PendingDownloadState::Paused), "queued interruption can become manual pause");
+
+	const auto first = Storage::PendingDownloadId{ 42, QUuid::createUuid() };
+	const auto second = Storage::PendingDownloadId{ 42, QUuid::createUuid() };
+	const auto other = Storage::PendingDownloadId{ 43, first.job };
+	const auto snapshot = Storage::ScopedDownloadIds(42, { first, other, second, first, {} });
+	Check(snapshot.size() == 2 && snapshot.front() == first && snapshot.back() == second,
+		"stable selected identities are deduplicated within the requested account");
+	Check(Storage::ScopedDownloadIds(43, snapshot).empty()
+		&& Storage::ScopedDownloadIds(42, {}).empty(), "changed account and empty selection");
+	auto states = std::array{ Status::Downloading, Status::Paused };
+	const auto count = [&](Action action) {
+		return std::count_if(states.begin(), states.end(), [&](Status state) {
+			return allows(state, action);
+		});
+	};
+	Check(count(Action::Pause) == 1 && count(Action::Resume) == 1
+		&& count(Action::Cancel) == 2, "mixed selection supports only eligible actions");
+	states[0] = Status::Completed;
+	states[1] = Status::Cancelling;
+	Check(count(Action::Pause) == 0 && count(Action::Resume) == 0
+		&& count(Action::Cancel) == 0, "revalidating before dispatch skips completed and cancelled jobs");
+}
+
+void TestDownloadPresentation() {
+	using Status = Storage::DownloadStatus;
+	using Filter = Storage::DownloadFilter;
+	auto matches = [](Status status, Filter filter, QStringView name, QStringView query) {
+		return Storage::MatchesDownloadFilter(status, filter)
+			&& Storage::MatchesDownloadName(name, query);
+	};
+	const auto filename = u"RÉSUMÉ α (Final).MP4"_s;
+	Check(matches(Status::Paused, Filter::Paused, filename, u"résumé α"_s)
+		&& matches(Status::Paused, Filter::All, filename, u").mp4"_s)
+		&& !matches(Status::Paused, Filter::Completed, filename, u"mp4"_s)
+		&& !matches(Status::Downloading, Filter::Active, filename, u".zip"_s),
+		"case-insensitive Unicode and punctuation match combined with status");
+	Check(Storage::MatchesDownloadFilter(Status::Verifying, Filter::Active)
+		&& Storage::MatchesDownloadFilter(Status::Waiting, Filter::Interrupted)
+		&& Storage::MatchesDownloadFilter(Status::Unavailable, Filter::Failed),
+		"transitional filter buckets");
+	auto found = 0;
+	for (auto i = 0; i != 4096; ++i) {
+		found += matches((i % 2) ? Status::Completed : Status::Interrupted,
+			Filter::Completed, filename, u".MP4"_s);
+	}
+	Check(found == 2048, "large mixed history filter yields the expected count");
+
+	auto total = Storage::DownloadByteTotals();
+	const auto gib = qint64(1) << 30;
+	total.add(3 * gib, 4 * gib);
+	total.add(0, gib);
+	total.add(gib, 0);
+	Check(total.written == 3 * gib && total.total == 5 * gib
+		&& total.percent() == 60, "aggregate uses byte weights and skips unknown sizes");
+	auto rate = Storage::DownloadRate();
+	rate.accept(kPart, 1000);
+	Check(rate.rate(1200) == 0, "speed waits for a sample window");
+	rate.accept(kPart, 1500);
+	const auto measured = rate.rate(1500);
+	Check(measured == 2 * kPart
+		&& Storage::DownloadEta(3 * gib, 4 * gib, measured) == (gib / measured),
+		"speed and ETA use monotonic samples and 64-bit remaining bytes");
+	Check(rate.rate(3500) == 0 && !Storage::DownloadEta(0, 4 * gib, 0),
+		"stale or missing estimates are hidden");
+	rate.accept(kPart, 4000);
+	Check(rate.rate(4000) == 0, "transfer after idle starts a fresh sample");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -636,6 +733,8 @@ int main(int argc, char **argv) {
 	TestStreamingAttachment();
 	TestStreamedCheckpoint(dir);
 	TestStreamingMaximumOffsets();
+	TestDownloadActions();
+	TestDownloadPresentation();
 	qInfo("Persistent file sink tests passed.");
 	return EXIT_SUCCESS;
 }

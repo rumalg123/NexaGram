@@ -40,6 +40,7 @@ public:
 	struct DownloadPart {
 		Attachment attachment = 0;
 		LoadedPart part;
+		bool downloadNetwork = false;
 	};
 
 	enum class FillState : uchar {
@@ -247,7 +248,11 @@ private:
 	[[nodiscard]] bool downloaderWaitForCachedSlice(uint32 offset);
 	void enqueueDownloaderOffsets();
 	void checkForDownloaderReadyOffsets();
-	void deliverDownloadPart(Attachment attachment, LoadedPart part, const char *source);
+	void deliverDownloadPart(
+		Attachment attachment,
+		LoadedPart part,
+		const char *source,
+		bool downloadNetwork = false);
 	void loadDownloadOffset(Attachment attachment, uint32 offset);
 	void cancelRemoteOffset(uint32 offset);
 	void traceNetworkOffset(uint32 offset, const char *consumer) const;

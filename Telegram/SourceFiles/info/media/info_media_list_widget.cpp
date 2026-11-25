@@ -7,6 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/media/info_media_list_widget.h"
 
+#include "info/downloads/info_downloads_status.h"
+#include <QtGui/QKeyEvent>
+#include <QtGui/QKeySequence>
+
 #include "info/global_media/info_global_media_provider.h"
 #include "info/media/info_media_common.h"
 #include "info/media/info_media_provider.h"
@@ -232,10 +236,17 @@ void ListWidget::start() {
 	}, lifetime());
 
 	if (_controller->isDownloads()) {
+		if (downloadSelectionEnabled()) {
+			setFocusPolicy(Qt::StrongFocus);
+			_controller->setSearchEnabledByContent(true);
+		}
 		_provider->refreshViewer();
 
 		_controller->searchQueryValue(
 		) | rpl::on_next([this](QString &&query) {
+			if (downloadSelectionEnabled()) {
+				clearSelected();
+			}
 			_provider->setSearchQuery(std::move(query));
 		}, lifetime());
 	} else if (_controller->storiesPeer()) {
@@ -986,6 +997,15 @@ void ListWidget::refreshRows() {
 	_reorderState = {};
 	_sections.clear();
 	_sections = _provider->fillSections(this);
+	if (downloadSelectionEnabled() && !_selected.empty()) {
+		const auto previous = _selected.size();
+		for (auto i = _selected.begin(); i != _selected.end();) {
+			i = _provider->isMyItem(i->first) ? std::next(i) : _selected.erase(i);
+		}
+		if (_selected.size() != previous) {
+			pushSelectedItems();
+		}
+	}
 
 	if (_controller->isDownloads() && !_sections.empty()) {
 		for (const auto &item : _sections.back().items()) {
@@ -1420,12 +1440,87 @@ void ListWidget::paintEvent(QPaintEvent *e) {
 	}
 }
 
+bool ListWidget::downloadSelectionEnabled() const {
+	return _controller->isDownloads() && Storage::PendingDownloadsEnabled();
+}
+
+bool ListWidget::handleDownloadSelectionPress(QMouseEvent *e) {
+	if (!downloadSelectionEnabled() || e->button() != Qt::LeftButton) {
+		return false;
+	}
+	setFocus(Qt::MouseFocusReason);
+	const auto modifiers = e->modifiers();
+	if (!(modifiers & (Qt::ControlModifier | Qt::ShiftModifier))) {
+		return false;
+	}
+	mouseActionUpdate(e->globalPos());
+	if (!_overLayout) {
+		return false;
+	}
+	const auto item = _overLayout->getItem();
+	const auto target = item->globalId();
+	const auto anchor = _downloadsSelectionAnchor.itemId
+		? MessageByGlobalId(_downloadsSelectionAnchor)
+		: nullptr;
+	if ((modifiers & Qt::ShiftModifier) && anchor && anchor->globalId() != target
+		&& _provider->isMyItem(anchor)) {
+		auto selecting = false;
+		auto finished = false;
+		for (const auto &section : _sections) {
+			for (const auto &layout : section.items()) {
+				const auto row = layout->getItem();
+				const auto rowId = row->globalId();
+				const auto endpoint = (rowId == target || rowId == _downloadsSelectionAnchor);
+				if (endpoint && selecting) {
+					finished = true;
+				}
+				selecting = selecting || endpoint;
+				if (selecting) {
+					ChangeItemSelection(_selected, row,
+						_provider->computeSelectionData(row, FullSelection), _selectedLimit);
+				}
+				if (finished) {
+					break;
+				}
+			}
+			if (finished) {
+				break;
+			}
+		}
+		update();
+		pushSelectedItems();
+	} else {
+		toggleItemSelection(item);
+		_downloadsSelectionAnchor = target;
+	}
+	_downloadsSelectionPress = true;
+	e->accept();
+	return true;
+}
+
+void ListWidget::keyPressEvent(QKeyEvent *e) {
+	if (downloadSelectionEnabled()) {
+		if (e->matches(QKeySequence::SelectAll)) {
+			selectAll();
+			e->accept();
+			return;
+		} else if (e->key() == Qt::Key_Escape && !_selected.empty()) {
+			clearSelected();
+			e->accept();
+			return;
+		}
+	}
+	RpWidget::keyPressEvent(e);
+}
+
 void ListWidget::mousePressEvent(QMouseEvent *e) {
 	if (_contextMenu) {
 		e->accept();
 		return; // ignore mouse press, that was hiding context menu
 	}
-	mouseActionStart(e->globalPos(), e->button());
+	if (!handleDownloadSelectionPress(e)) {
+		mouseActionStart(e->globalPos(), e->button());
+	}
 }
 
 void ListWidget::mouseMoveEvent(QMouseEvent *e) {
@@ -1437,6 +1532,10 @@ void ListWidget::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void ListWidget::mouseReleaseEvent(QMouseEvent *e) {
+	if (base::take(_downloadsSelectionPress)) {
+		e->accept();
+		return;
+	}
 	mouseActionFinish(e->globalPos(), e->button());
 	if (!rect().contains(e->pos())) {
 		leaveEvent(e);
@@ -1565,25 +1664,37 @@ void ListWidget::showContextMenu(
 	const auto externalState = _controller->isDownloads()
 		? Core::App().downloadManager().loadingExternalState(item)
 		: std::optional<ExternalState>();
-	if (externalState && Core::App().downloadManager().pendingRow(item)) {
-		if (Core::App().downloadManager().pendingRowCanResume(item)) {
+	const auto pendingId = _controller->isDownloads()
+		? Core::App().downloadManager().pendingIdForRow(item)
+		: Storage::PendingDownloadId();
+	if (const auto pending = Core::App().downloadManager().pendingView(pendingId)) {
+		using Action = Storage::DownloadAction;
+		auto &manager = Core::App().downloadManager();
+		if (pendingId.account == session().uniqueId() && manager.pendingSourceItem(pendingId)) {
 			_contextMenu->addAction(
-				u"Resume download"_q,
-				[globalId] {
-					if (const auto item = MessageByGlobalId(globalId)) {
-						Core::App().downloadManager().resumePendingRow(item);
+				tr::lng_context_to_msg(tr::now),
+				crl::guard(this, [=] {
+					if (const auto source = Core::App().downloadManager().pendingSourceItem(pendingId)) {
+						_controller->notifyJumpToMessage();
+						JumpToMessageClickHandler(source)->onClick({});
 					}
-				},
-				&st::menuIconDownload);
+				}),
+				&st::menuIconShowInChat);
 		}
-		_contextMenu->addAction(
-			tr::lng_context_cancel_download(tr::now),
-			[globalId] {
-				if (const auto item = MessageByGlobalId(globalId)) {
-					Core::App().downloadManager().cancelPendingRow(item);
-				}
-			},
-			&st::menuIconCancel);
+		const auto add = [&](Action action, const style::icon *icon) {
+			if (pending->allows(action)) {
+				_contextMenu->addAction(
+					Downloads::ActionText(action,
+						pending->transfer.status),
+					[pendingId, action] {
+						Core::App().downloadManager().actOnPending(pendingId, action);
+					},
+					icon);
+			}
+		};
+		add(Action::Pause, &st::menuIconDownload);
+		add(Action::Resume, &st::menuIconDownload);
+		add(Action::Cancel, &st::menuIconCancel);
 	} else if (externalState && !externalState->done) {
 		_contextMenu->addAction(
 			tr::lng_context_cancel_download(tr::now),
@@ -2179,6 +2290,7 @@ bool ListWidget::isPressInSelectedText(TextState state) const {
 }
 
 void ListWidget::clearSelected() {
+	_downloadsSelectionAnchor = {};
 	if (_selected.empty()) {
 		return;
 	}

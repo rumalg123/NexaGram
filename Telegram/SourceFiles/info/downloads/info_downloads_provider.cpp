@@ -7,10 +7,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/downloads/info_downloads_provider.h"
 
+#include "info/downloads/info_downloads_status.h"
+
 #include "info/media/info_media_widget.h"
 #include "info/media/info_media_list_section.h"
 #include "info/info_controller.h"
 #include "ui/text/format_song_document_name.h"
+#include "ui/text/format_values.h"
+#include "lang/lang_keys.h"
 #include "ui/ui_utility.h"
 #include "data/data_download_manager.h"
 #include "data/data_document.h"
@@ -76,11 +80,12 @@ bool Provider::isPossiblyMyItem(not_null<const HistoryItem*> item) {
 }
 
 std::optional<int> Provider::fullCount() {
-	return _queryWords.empty()
-		? _fullCount
-		: (_foundCount || _fullCount.has_value())
-		? _foundCount
-		: std::optional<int>();
+	if (!searchMode() && _filter == Storage::DownloadFilter::All) {
+		return _fullCount;
+	}
+	return int(ranges::count_if(_elements, [=](const auto &element) {
+		return visible(element);
+	}));
 }
 
 void Provider::restart() {
@@ -98,21 +103,19 @@ void Provider::setSearchQuery(QString query) {
 	if (_query == query) {
 		return;
 	}
-	_query = query;
-	auto words = TextUtilities::PrepareSearchWords(_query);
-	if (!_started || _queryWords == words) {
-		return;
-	}
-	_queryWords = std::move(words);
-	if (searchMode()) {
-		_foundCount = 0;
-		for (auto &element : _elements) {
-			if ((element.found = computeIsFound(element))) {
-				++_foundCount;
-			}
-		}
+	_query = std::move(query);
+	_queryWords = TextUtilities::PrepareSearchWords(_query);
+	for (auto &element : _elements) {
+		element.found = searchMode() && computeIsFound(element);
 	}
 	_refreshed.fire({});
+}
+
+void Provider::setDownloadFilter(Storage::DownloadFilter filter) {
+	if (_filter != filter) {
+		_filter = filter;
+		_refreshed.fire({});
+	}
 }
 
 void Provider::jumpToMessage(MsgId messageId, Fn<void(FullMsgId)>) {
@@ -137,6 +140,7 @@ void Provider::refreshViewer() {
 						.item = item,
 						.started = id->started,
 						.path = id->path,
+						.pending = id->pending,
 					});
 					trackItemSession(item);
 					refreshPostponed(true);
@@ -148,6 +152,13 @@ void Provider::refreshViewer() {
 			remove(item);
 		}
 		if (!_fullCount.has_value()) {
+			refreshPostponed(false);
+		}
+	}, _lifetime);
+
+	manager.pendingViewsChanged(
+	) | rpl::on_next([=] {
+		if (_filter != Storage::DownloadFilter::All) {
 			refreshPostponed(false);
 		}
 	}, _lifetime);
@@ -225,9 +236,6 @@ void Provider::addElementNow(Element &&element) {
 	auto &added = _elements.back();
 	fillSearchIndex(added);
 	added.found = searchMode() && computeIsFound(added);
-	if (added.found) {
-		++_foundCount;
-	}
 }
 
 void Provider::remove(not_null<const HistoryItem*> item) {
@@ -236,15 +244,7 @@ void Provider::remove(not_null<const HistoryItem*> item) {
 		end(_addPostponed));
 	_downloading.remove(item);
 	_downloaded.remove(item);
-	const auto proj = [&](const Element &element) {
-		if (element.item != item) {
-			return false;
-		} else if (element.found && searchMode()) {
-			--_foundCount;
-		}
-		return true;
-	};
-	_elements.erase(ranges::remove_if(_elements, proj), end(_elements));
+	_elements.erase(ranges::remove(_elements, item, &Element::item), end(_elements));
 	if (const auto i = _layouts.find(item); i != end(_layouts)) {
 		_layoutRemoved.fire(i->second.item.get());
 		// The list widget handles layoutRemoved() synchronously and may
@@ -315,7 +315,7 @@ std::vector<ListSection> Provider::fillSections(
 	}
 	const auto guard = gsl::finally([&] { clearStaleLayouts(); });
 
-	if (_elements.empty() || (search && !_foundCount)) {
+	if (_elements.empty()) {
 		return {};
 	}
 
@@ -323,7 +323,7 @@ std::vector<ListSection> Provider::fillSections(
 	result.emplace_back(Type::File, sectionDelegate());
 	auto &section = result.back();
 	for (const auto &element : ranges::views::reverse(_elements)) {
-		if (search && !element.found) {
+		if (!visible(element)) {
 			continue;
 		} else if (auto layout = getLayout(element, delegate)) {
 			section.addItem(layout);
@@ -362,7 +362,11 @@ BaseLayout *Provider::lookupLayout(const HistoryItem *item) {
 }
 
 bool Provider::isMyItem(not_null<const HistoryItem*> item) {
-	return _downloading.contains(item) || _downloaded.contains(item);
+	if (_filter == Storage::DownloadFilter::All && !searchMode()) {
+		return _downloading.contains(item) || _downloaded.contains(item);
+	}
+	const auto i = ranges::find(_elements, item, &Element::item);
+	return i != end(_elements) && visible(*i);
 }
 
 bool Provider::isAfter(
@@ -381,13 +385,33 @@ bool Provider::isAfter(
 }
 
 bool Provider::searchMode() const {
-	return !_queryWords.empty();
+	return Storage::PendingDownloadsEnabled()
+		? !_query.trimmed().isEmpty()
+		: !_queryWords.empty();
+}
+
+bool Provider::visible(const Element &element) const {
+	if (searchMode() && !element.found) {
+		return false;
+	}
+	if (_filter == Storage::DownloadFilter::All) {
+		return true;
+	}
+	const auto pending = Core::App().downloadManager().pendingView(element.pending);
+	const auto status = pending ? pending->transfer.status
+		: _downloaded.contains(element.item) ? Storage::DownloadStatus::Completed
+		: Storage::DownloadStatus::Downloading;
+	return Storage::MatchesDownloadFilter(status, _filter);
 }
 
 void Provider::fillSearchIndex(Element &element) {
-	auto strings = QStringList(QFileInfo(element.path).fileName());
+	element.filename = QFileInfo(element.path).fileName();
+	auto strings = QStringList(element.filename);
 	if (const auto media = element.item->media()) {
 		if (const auto document = media->document()) {
+			if (element.filename.isEmpty()) {
+				element.filename = document->filename();
+			}
 			strings.append(document->filename());
 			strings.append(Ui::Text::FormatDownloadsName(document).text);
 		}
@@ -400,7 +424,13 @@ void Provider::fillSearchIndex(Element &element) {
 }
 
 bool Provider::computeIsFound(const Element &element) const {
-	Expects(!_queryWords.empty());
+	if (Storage::PendingDownloadsEnabled()
+		&& Storage::MatchesDownloadName(element.filename, _query)) {
+		return true;
+	}
+	if (_queryWords.empty()) {
+		return false;
+	}
 
 	const auto has = [&](const QString &queryWord) {
 		if (!element.letters.contains(queryWord.front())) {
@@ -461,7 +491,64 @@ std::unique_ptr<BaseLayout> Provider::createLayout(
 		};
 		const auto item = element.item;
 		auto &manager = Core::App().downloadManager();
-		if (manager.loadingExternalState(item).has_value()) {
+		if (!element.pending.job.isNull()) {
+			const auto id = element.pending;
+			fields.externalLoading = [id]() -> std::optional<DocumentExternalLoading> {
+				const auto view = Core::App().downloadManager().pendingView(id);
+				if (!view) {
+					return std::nullopt;
+				}
+				const auto &progress = view->transfer;
+				const auto middle = u" · "_q;
+				auto status = StatusText(progress.status);
+				const auto issue = IssueText(progress.issue);
+				if (!issue.isEmpty()) {
+					status += middle + issue;
+				} else if (progress.bytesPerSecond > 0) {
+					status += middle + tr::lng_downloads_transfer_rate(
+						tr::now, lt_size, Ui::FormatSizeText(progress.bytesPerSecond));
+					if (const auto eta = Storage::DownloadEta(
+							progress.written, view->total, progress.bytesPerSecond)) {
+						status += middle + tr::lng_downloads_transfer_eta(
+							tr::now, lt_duration, Ui::FormatDurationText(*eta));
+					}
+				}
+				return DocumentExternalLoading{
+					.ready = progress.written,
+					.total = view->total,
+					.status = status,
+					.context = view->sourceName.isEmpty()
+						? view->accountName
+						: view->accountName + middle + view->sourceName,
+					.pause = view->canPause,
+					.actionable = view->canPause || view->canResume,
+					.cancellable = view->canCancel,
+				};
+			};
+			fields.externalCancel = [id] {
+				auto &manager = Core::App().downloadManager();
+				if (const auto view = manager.pendingView(id)) {
+					manager.actOnPending(id, view->canPause
+						? Storage::DownloadAction::Pause
+						: Storage::DownloadAction::Resume);
+				}
+			};
+			fields.externalDiscard = [id] {
+				Core::App().downloadManager().actOnPending(id, Storage::DownloadAction::Cancel);
+			};
+			fields.externalTooltip = [id] {
+				const auto view = Core::App().downloadManager().pendingView(id);
+				if (!view) {
+					return QString();
+				}
+				const auto action = view->canPause ? Storage::DownloadAction::Pause
+					: Storage::DownloadAction::Resume;
+				return ActionText(action, view->transfer.status)
+					+ u"\n"_q + view->destination
+					+ u"\n"_q + tr::lng_downloads_committed_progress(
+						tr::now, lt_size, Ui::FormatSizeText(view->transfer.committed));
+			};
+		} else if (manager.loadingExternalState(item).has_value()) {
 			fields.externalLoading = [item]()
 			-> std::optional<DocumentExternalLoading> {
 				auto &manager = Core::App().downloadManager();
@@ -472,16 +559,10 @@ std::unique_ptr<BaseLayout> Provider::createLayout(
 				return DocumentExternalLoading{
 					.ready = state->ready,
 					.total = state->total,
-					.status = manager.pendingRowStatus(item),
 				};
 			};
 			fields.externalCancel = [item] {
-				auto &manager = Core::App().downloadManager();
-				if (manager.pendingRow(item)) {
-					manager.resumePendingRow(item);
-				} else {
-					manager.cancelLoadingExternal(item);
-				}
+				Core::App().downloadManager().cancelLoadingExternal(item);
 			};
 		}
 		return std::make_unique<Document>(
@@ -525,14 +606,13 @@ void Provider::applyDragSelection(
 		selected.clear();
 		return;
 	}
-	const auto search = !_queryWords.isEmpty();
 	const auto selectLimit = _storiesAddToAlbumId
 		? _controller->session().appConfig().storiesAlbumLimit()
 		: MaxSelectedItems;
 	auto chosen = base::flat_set<not_null<const HistoryItem*>>();
 	chosen.reserve(till - from);
 	for (auto i = from; i != till; ++i) {
-		if (search && !i->found) {
+		if (!visible(*i)) {
 			continue;
 		}
 		const auto item = i->item;

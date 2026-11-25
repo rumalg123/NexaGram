@@ -73,11 +73,40 @@ struct DownloadingId {
 	DownloadObject object;
 	DownloadDate started = 0;
 	QString path;
+	Storage::PendingDownloadId pending;
 	Fn<void()> externalCancel;
 	int64 ready = 0;
 	int64 total = 0;
 	bool hiddenByView = false;
 	bool done = false;
+};
+
+struct PendingDownloadView {
+	Storage::PendingDownloadId id;
+	QString filename;
+	QString accountName;
+	QString sourceName;
+	QString destination;
+	int64 total = 0;
+	Storage::DownloadTransferView transfer;
+	bool canPause = false;
+	bool canResume = false;
+	bool canCancel = false;
+
+	[[nodiscard]] bool allows(Storage::DownloadAction action) const {
+		switch (action) {
+		case Storage::DownloadAction::Pause: return canPause;
+		case Storage::DownloadAction::Resume: return canResume;
+		case Storage::DownloadAction::Cancel: return canCancel;
+		}
+		return false;
+	}
+};
+
+struct DownloadActionResult {
+	int accepted = 0;
+	int skipped = 0;
+	int failed = 0;
 };
 
 class DownloadManager final : public base::has_weak_ptr {
@@ -102,10 +131,24 @@ public:
 	void pendingCancelled(
 		not_null<Main::Session*> session, const QUuid &id,
 		Storage::PersistentFileSink::Result result);
+	[[nodiscard]] Storage::PendingDownloadId pendingIdForRow(
+		not_null<const HistoryItem*> item) const;
+	[[nodiscard]] std::optional<PendingDownloadView> pendingView(
+		const Storage::PendingDownloadId &id) const;
+	[[nodiscard]] std::vector<PendingDownloadView> pendingViews(uint64 account) const;
+	[[nodiscard]] HistoryItem *pendingSourceItem(const Storage::PendingDownloadId &id) const;
+	[[nodiscard]] rpl::producer<> pendingViewsChanged() const;
+	[[nodiscard]] rpl::producer<> pendingProgressChanged() const;
+	[[nodiscard]] rpl::producer<uint64> pendingCleanupDeferred() const;
+	[[nodiscard]] bool pendingBatchActive(uint64 account) const;
+	void pendingLoaderUpdated(bool transition, Storage::PendingDownloadId id = {});
+	void actOnPending(const Storage::PendingDownloadId &id, Storage::DownloadAction action);
+	void actOnPendingBatch(
+		uint64 account,
+		std::vector<Storage::PendingDownloadId> ids,
+		Storage::DownloadAction action,
+		Fn<void(DownloadActionResult)> done);
 	[[nodiscard]] bool pendingRow(not_null<const HistoryItem*> item) const;
-	[[nodiscard]] bool pendingRowCanResume(not_null<const HistoryItem*> item) const;
-	[[nodiscard]] QString pendingRowStatus(not_null<const HistoryItem*> item) const;
-	void resumePendingRow(not_null<const HistoryItem*> item);
 	void cancelPendingRow(not_null<const HistoryItem*> item);
 	[[nodiscard]] bool persistentQuitPending();
 	void retirePending(not_null<Main::Session*> session);
@@ -130,7 +173,9 @@ public:
 		DownloadObject object,
 		const QString &path,
 		int64 total,
-		Fn<void()> cancel);
+		Fn<void()> cancel,
+		Storage::PendingDownloadId pending = {},
+		DownloadDate started = 0);
 	void updateLoadingExternal(
 		not_null<const HistoryItem*> item,
 		int64 ready,
@@ -171,6 +216,7 @@ public:
 
 private:
 	struct DeleteFilesDescriptor;
+	struct PendingBatch;
 	struct PendingRuntime {
 		HistoryItem *row = nullptr;
 		DocumentData *active = nullptr;
@@ -179,6 +225,11 @@ private:
 		bool inspectionFailed = false;
 		bool resolve = false;
 		bool start = false;
+		bool resolving = false;
+		bool rowDirty = false;
+		bool displayingRate = false;
+		int64 inspectedBytes = 0;
+		Storage::DownloadIssue issue = Storage::DownloadIssue::None;
 	};
 	struct SessionData {
 		Storage::PendingDownloadList pending;
@@ -193,6 +244,16 @@ private:
 	};
 
 	void loadPending(not_null<Main::Session*> session);
+	[[nodiscard]] Main::Session *pendingSession(uint64 account) const;
+	[[nodiscard]] PendingDownloadView makePendingView(
+		not_null<Main::Session*> session,
+		const Storage::PendingDownload &job,
+		const PendingRuntime &runtime) const;
+	enum class PendingActionOutcome { Accepted, Skipped, Failed };
+	PendingActionOutcome applyPendingAction(
+		const Storage::PendingDownloadId &id, Storage::DownloadAction action);
+	void continuePendingBatch(uint64 account);
+	void flushPendingViews();
 	void scanPending();
 	void resolvePending();
 	void publishRecoveredPending(
@@ -284,6 +345,12 @@ private:
 
 	base::Timer _clearLoadingTimer;
 	base::Timer _pendingQuitTimer;
+	base::Timer _pendingViewTimer;
+	base::flat_map<uint64, std::shared_ptr<PendingBatch>> _pendingBatches;
+	rpl::event_stream<> _pendingViewsChanged;
+	rpl::event_stream<> _pendingProgressChanged;
+	rpl::event_stream<uint64> _pendingCleanupDeferred;
+	bool _pendingViewsDirty = false;
 	bool _pendingScanBusy = false;
 	bool _pendingResolveBusy = false;
 	bool _pendingQuitting = false;

@@ -221,6 +221,7 @@ private:
 	void paintEvent(QPaintEvent *e) override;
 	void mouseMoveEvent(QMouseEvent *e) override;
 	void mousePressEvent(QMouseEvent *e) override;
+	void keyPressEvent(QKeyEvent *e) override;
 	void mouseReleaseEvent(QMouseEvent *e) override;
 	void mouseDoubleClickEvent(QMouseEvent *e) override;
 	void contextMenuEvent(QContextMenuEvent *e) override;
@@ -276,6 +277,8 @@ private:
 	[[nodiscard]] bool hasSelectedText() const;
 	[[nodiscard]] bool hasSelectedItems() const;
 	void clearSelected();
+	[[nodiscard]] bool downloadSelectionEnabled() const;
+	bool handleDownloadSelectionPress(QMouseEvent *e);
 	void forwardSelected();
 	void forwardItem(GlobalMsgId globalId);
 	void forwardItems(MessageIdsList &&items);
@@ -389,6 +392,8 @@ private:
 
 	const not_null<AbstractController*> _controller;
 	const std::unique_ptr<ListProvider> _provider;
+	GlobalMsgId _downloadsSelectionAnchor;
+	bool _downloadsSelectionPress = false;
 
 	// Cached: we can outlive the controller, and this never changes.
 	const bool _sectionsSortedById = false;

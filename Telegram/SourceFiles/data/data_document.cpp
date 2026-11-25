@@ -1484,6 +1484,11 @@ QUuid DocumentData::persistentDownloadId() const {
 	return loader ? loader->persistentId() : QUuid();
 }
 
+std::optional<Storage::DownloadTransferView> DocumentData::persistentTransferView() const {
+	const auto loader = persistentFileLoader();
+	return loader ? loader->persistentTransferView() : std::nullopt;
+}
+
 bool DocumentData::restorePendingDownload(const Storage::PendingDownload &job) {
 	const auto origin = FullMsgId(PeerId(job.peer), MsgId(job.message));
 	if (_loader || job.document != id || job.file.size != size

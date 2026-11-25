@@ -57,15 +57,17 @@ bool PendingDownloadTransition(State from, State to) {
 	switch (from) {
 	case State::Initializing:
 	case State::Paused:
-	case State::Retryable:
 		return to == State::Downloading || to == State::Unavailable;
+	case State::Retryable:
+		return to == State::Downloading || to == State::Unavailable
+			|| to == State::Paused;
 	case State::Downloading:
 		return to == State::Paused || to == State::Interrupted
 			|| to == State::Retryable || to == State::Unavailable
 			|| to == State::Finalizing;
 	case State::Interrupted:
 		return to == State::Downloading || to == State::Retryable
-			|| to == State::Unavailable;
+			|| to == State::Unavailable || to == State::Paused;
 	case State::Finalizing:
 		return to == State::Downloading;
 	case State::Unavailable:

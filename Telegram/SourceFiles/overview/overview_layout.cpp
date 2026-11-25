@@ -56,6 +56,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat_helpers.h"
 #include "styles/style_chat_style.h"
 #include "styles/style_overview.h"
+#include "styles/style_menu_icons.h"
 
 namespace Overview::Layout {
 namespace {
@@ -1400,6 +1401,21 @@ bool Voice::updateStatusText() {
 	return showPause;
 }
 
+class DocumentExternalAction final : public LambdaClickHandler {
+public:
+	DocumentExternalAction(Fn<void()> action, Fn<QString()> tooltip)
+	: LambdaClickHandler(std::move(action))
+	, _tooltip(std::move(tooltip)) {
+	}
+
+	QString tooltip() const override {
+		return _tooltip ? _tooltip() : QString();
+	}
+
+private:
+	const Fn<QString()> _tooltip;
+};
+
 Document::Document(
 	not_null<Delegate*> delegate,
 	not_null<HistoryItem*> parent,
@@ -1436,9 +1452,14 @@ Document::Document(
 
 	setDocumentLinks(_data);
 	if (auto cancel = std::move(fields.externalCancel)) {
-		_cancell = std::make_shared<LambdaClickHandler>(crl::guard(
-			this,
-			[cancel = std::move(cancel)] { cancel(); }));
+		_cancell = std::make_shared<DocumentExternalAction>(
+			crl::guard(this, [cancel = std::move(cancel)] { cancel(); }),
+			std::move(fields.externalTooltip));
+	}
+	if (auto discard = std::move(fields.externalDiscard)) {
+		_externalDiscard = std::make_shared<DocumentExternalAction>(
+			crl::guard(this, [discard = std::move(discard)] { discard(); }),
+			[] { return tr::lng_context_cancel_download(tr::now); });
 	}
 
 	_status.update(
@@ -1601,6 +1622,16 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 		nametop = st::linksBorder + _st.fileNameTop;
 		statustop = st::linksBorder + _st.fileStatusTop;
 		datetop = st::linksBorder + _st.fileDateTop;
+		if (pending && external->cancellable) {
+			const auto discard = externalDiscardRect();
+			nameright = discard.width();
+			if (clip.intersects(discard)) {
+				if (ClickHandler::showAsActive(_externalDiscard)) {
+					p.fillRect(discard, st::windowBgOver);
+				}
+				st::menuIconCancel.paintInCenter(p, discard);
+			}
+		}
 
 		QRect border(style::rtlrect(nameleft, 0, _width - nameleft, st::linksBorder, _width));
 		if (!context->skipBorder && clip.intersects(border)) {
@@ -1645,7 +1676,10 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 					}
 
 					p.setOpacity(radialOpacity);
-					auto icon = ([loaded, pending, this, selected] {
+					auto icon = ([&] {
+						if (pending && external->pause) {
+							return &(selected ? _st.voicePauseSelected : _st.voicePause);
+						}
 						if (loaded || (activeLoading() && !pending)) {
 							return &(selected ? st::historyFileThumbCancelSelected : st::historyFileThumbCancel);
 						}
@@ -1673,12 +1707,30 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 	if (clip.intersects(style::rtlrect(nameleft, statustop, availwidth, st::normalFont->height, _width))) {
 		p.setFont(st::normalFont);
 		p.setPen((isSong && selected) ? st::mediaInFgSelected : st::mediaInFg);
+		const auto percent = pending && external->total > 0
+			? (qint64(100) * external->ready / external->total)
+			: 0;
 		const auto status = pending
-			? external->status + u" · "_q + _status.text()
+			? (external->status + u" · "_q + QString::number(percent)
+				+ u"% · "_q + _status.text())
 			: _status.text();
 		p.drawTextLeft(nameleft, statustop, _width, st::normalFont->elided(status, availwidth));
 	}
-	if (datetop >= 0 && clip.intersects(style::rtlrect(nameleft, datetop, _datew, st::normalFont->height, _width))) {
+	if (pending && datetop >= 0) {
+		p.setFont(st::normalFont);
+		p.setPen(st::mediaInFg);
+		p.drawTextLeft(nameleft, datetop, _width,
+			st::normalFont->elided(external->context, availwidth));
+		if (availwidth > 0 && external->total > 0) {
+			const auto bar = style::rtlrect(
+				nameleft, datetop - 2 * st::lineWidth, availwidth, st::lineWidth, _width);
+			const auto ready = int(availwidth * std::clamp(
+				external->ready / float64(external->total), 0., 1.));
+			p.fillRect(bar, st::linksBorderFg);
+			p.fillRect(style::rtlrect(
+				nameleft, bar.y(), ready, bar.height(), _width), st::windowBgActive);
+		}
+	} else if (datetop >= 0 && clip.intersects(style::rtlrect(nameleft, datetop, _datew, st::normalFont->height, _width))) {
 		p.setFont((_msgl && ClickHandler::showAsActive(_msgl))
 			? st::normalFont->underline()
 			: st::normalFont);
@@ -1902,6 +1954,17 @@ TextState Document::getState(
 			_st.fileThumbSize,
 			_width);
 
+		if (_externalDiscard) {
+			if (const auto external = externalLoading()) {
+				if (external->cancellable && externalDiscardRect().contains(point)) {
+					return { parent(), _externalDiscard };
+				}
+				if (external->actionable && rthumb.contains(point)) {
+					return { parent(), _cancell };
+				}
+			}
+			return {};
+		}
 		if (rthumb.contains(point)) {
 			const auto link = (activeLoading() || _data->uploading())
 				? _cancell
@@ -1991,6 +2054,13 @@ void Document::clearHeavyPart() {
 auto Document::externalLoading() const
 -> std::optional<DocumentExternalLoading> {
 	return _externalLoading ? _externalLoading() : std::nullopt;
+}
+
+QRect Document::externalDiscardRect() const {
+	const auto size = _st.fileThumbSize;
+	return (_width >= 4 * size)
+		? style::rtlrect(_width - size, st::linksBorder + _st.filePadding.top(), size, size, _width)
+		: QRect();
 }
 
 bool Document::activeLoading() const {

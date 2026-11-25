@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_types.h"
 #include "data/data_cloud_file.h"
 #include "core/file_location.h"
+#include "storage/download_presentation.h"
 
 class HistoryItem;
 class PhotoData;
@@ -158,6 +159,7 @@ public:
 		SaveIntent intent = SaveIntent::Default);
 	[[nodiscard]] bool hasPersistentDownload() const;
 	[[nodiscard]] QUuid persistentDownloadId() const;
+	[[nodiscard]] std::optional<Storage::DownloadTransferView> persistentTransferView() const;
 	[[nodiscard]] bool restorePendingDownload(const Storage::PendingDownload &job);
 	void suspendPendingForQuit(Fn<void()> done);
 	[[nodiscard]] bool persistentSourceAllowed(Data::FileOrigin origin) const;

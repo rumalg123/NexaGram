@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/downloads/info_downloads_inner_widget.h"
 
 #include "info/downloads/info_downloads_widget.h"
+#include "info/downloads/info_downloads_provider.h"
 #include "info/media/info_media_list_widget.h"
 #include "info/info_controller.h"
 #include "ui/widgets/labels.h"
@@ -23,6 +24,7 @@ public:
 
 	void setFullHeight(rpl::producer<int> fullHeightValue);
 	void setSearchQuery(const QString &query);
+	void setFiltered(bool filtered);
 
 protected:
 	int resizeGetHeight(int newWidth) override;
@@ -32,6 +34,8 @@ protected:
 private:
 	object_ptr<Ui::FlatLabel> _text;
 	int _height = 0;
+	QString _query;
+	bool _filtered = false;
 
 };
 
@@ -54,10 +58,18 @@ void EmptyWidget::setFullHeight(rpl::producer<int> fullHeightValue) {
 }
 
 void EmptyWidget::setSearchQuery(const QString &query) {
-	_text->setText(query.isEmpty()
+	_query = query;
+	_text->setText(_filtered
+		? tr::lng_downloads_filter_empty(tr::now)
+		: _query.isEmpty()
 		? tr::lng_media_file_empty(tr::now)
 		: tr::lng_media_file_empty_search(tr::now));
 	resizeToWidth(width());
+}
+
+void EmptyWidget::setFiltered(bool filtered) {
+	_filtered = filtered;
+	setSearchQuery(_query);
 }
 
 int EmptyWidget::resizeGetHeight(int newWidth) {
@@ -108,7 +120,9 @@ bool InnerWidget::showInternal(not_null<Memento*> memento) {
 }
 
 object_ptr<Media::ListWidget> InnerWidget::setupList() {
-	auto result = object_ptr<Media::ListWidget>(this, _controller);
+	auto provider = std::make_unique<Provider>(_controller);
+	_provider = provider.get();
+	auto result = object_ptr<Media::ListWidget>(this, _controller, std::move(provider));
 	result->heightValue(
 	) | rpl::on_next(
 		[this] { refreshHeight(); },
@@ -148,6 +162,16 @@ rpl::producer<SelectedItems> InnerWidget::selectedListValue() const {
 
 void InnerWidget::selectionAction(SelectionAction action) {
 	_list->selectionAction(action);
+}
+
+void InnerWidget::setDownloadFilter(Storage::DownloadFilter filter) {
+	selectionAction(SelectionAction::Clear);
+	_empty->setFiltered(filter != Storage::DownloadFilter::All);
+	_provider->setDownloadFilter(filter);
+}
+
+void InnerWidget::selectAllResults() {
+	_list->selectAll();
 }
 
 InnerWidget::~InnerWidget() = default;

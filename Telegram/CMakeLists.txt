@@ -1390,6 +1390,8 @@ PRIVATE
     info/downloads/info_downloads_inner_widget.cpp
     info/downloads/info_downloads_inner_widget.h
     info/downloads/info_downloads_provider.cpp
+    info/downloads/info_downloads_status.cpp
+    info/downloads/info_downloads_status.h
     info/downloads/info_downloads_provider.h
     info/downloads/info_downloads_widget.cpp
     info/downloads/info_downloads_widget.h
@@ -2147,6 +2149,7 @@ PRIVATE
     storage/file_download_mtproto.h
     storage/persistent_file_sink.cpp
     storage/persistent_file_sink.h
+    storage/download_presentation.h
     storage/persistent_file_loader.cpp
     storage/persistent_file_loader.h
     storage/pending_downloads.cpp
