@@ -1310,6 +1310,10 @@ void DocumentData::save(
 			&& Core::App().settings().downloadPath() != FileDialog::Tmp()
 			&& persistentSourceAllowed(origin);
 		if (persistent) {
+			if (!Storage::PersistentDownloadPathMissing(toFile)) {
+				Ui::show(Ui::MakeInformBox(tr::lng_downloads_choose_unused_destination(tr::now)));
+				return;
+			}
 			if ((reader && !reader->matchesDocument(id, size))
 				|| (!reader && useStreamingLoader())) {
 				Storage::TracePendingDownload({}, "stream reader identity mismatch");
@@ -1573,6 +1577,12 @@ void DocumentData::resumeDownload() {
 void DocumentData::resumeValidatedPendingDownload() {
 	if (canResumeDownload()) {
 		persistentFileLoader()->resumePersistent(_fileReference);
+	}
+}
+
+void DocumentData::interruptPendingForLogout() {
+	if (const auto loader = persistentFileLoader()) {
+		loader->interruptForRetirement();
 	}
 }
 

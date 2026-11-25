@@ -15,19 +15,24 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QDataStream>
 #include <QtCore/QDebug>
+#include <QtCore/QDir>
 #include <QtCore/QFileInfo>
 #include <QtCore/QMap>
 #include <QtCore/QProcess>
 #include <QtCore/QTemporaryDir>
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <numeric>
+#include <random>
 
 #ifdef Q_OS_WIN
-#include <QtCore/QDir>
 #include <QtCore/qt_windows.h>
 #include <winioctl.h>
 #include <io.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
@@ -70,31 +75,32 @@ public:
 		Seek,
 		ShortWrite,
 		DiskFull,
+		WrongBytes,
 	};
 	Fault fault = Fault::None;
 
-	bool open(OpenMode mode) override {
-		if (!QFile::open(mode)) {
-			return false;
-		}
+	bool makeSparse() {
 #ifdef Q_OS_WIN
 		const auto native = reinterpret_cast<HANDLE>(_get_osfhandle(handle()));
 		auto count = DWORD();
-		sparse = DeviceIoControl(
-			native, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &count, nullptr);
-#endif
+		return DeviceIoControl(native, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &count, nullptr);
+#else
 		return true;
+#endif
 	}
 
 	bool seek(qint64 offset) override {
 		return (fault != Fault::Seek) && QFile::seek(offset);
 	}
 
-	bool sparse = true;
-
 protected:
 	qint64 writeData(const char *data, qint64 length) override {
 		switch (fault) {
+		case Fault::WrongBytes: {
+			auto changed = QByteArray(data, length);
+			changed[0] = char(changed.at(0) ^ 1);
+			return QFile::writeData(changed.constData(), changed.size());
+		}
 		case Fault::ShortWrite:
 			return QFile::writeData(data, length / 2);
 		case Fault::DiskFull:
@@ -235,8 +241,12 @@ void TestDestination(const QTemporaryDir &dir) {
 	Check(replace.open(false) == Result::Ok && replace.write(0, "x") == Result::Ok,
 		"prepare approved replacement");
 	Check(Read(job.destination) == original, "keep prior file until complete");
+	Check(replace.publish() == Result::PublishFailed && Read(job.destination) == original,
+		"historical overwrite intent cannot replace an occupied path");
+	Check(QFile::rename(job.destination, dir.filePath(u"saved-original.bin"_s)),
+		"user moves the prior destination");
 	Check(replace.publish() == Result::Ok && Read(job.destination) == "x",
-		"publish approved replacement");
+		"retry publishes committed bytes at the freed name");
 }
 
 void TestDestinationReplaced(const QTemporaryDir &dir) {
@@ -286,6 +296,41 @@ void TestAbruptExit(const QTemporaryDir &dir) {
 	Check(sink.cancel() == Result::Ok, "clean interrupted job");
 }
 
+void ExitAtPublication(const QUuid &id, const QString &path, bool published) {
+	auto sink = Sink({ id, path, 3, false, QByteArray(32, 'q') });
+	Check(sink.open(false) == Result::Ok && sink.write(0, "end") == Result::Ok
+		&& sink.preparePublish() == Result::Ok, "child reaches durable publication boundary");
+	if (published) {
+		Check(sink.publish(true) == Result::Ok, "child commits destination");
+	}
+	std::_Exit(kAbruptExitCode);
+}
+
+void TestPublicationExit(const QTemporaryDir &dir) {
+	for (const auto after : { false, true }) {
+		auto job = Job(dir, after ? u"after.bin"_s : u"before.bin"_s, 3);
+		job.checkpointKey = QByteArray(32, 'q');
+		auto child = QProcess();
+		child.start(QCoreApplication::applicationFilePath(), { u"--publication-exit"_s,
+			job.id.toString(), job.destination, after ? u"after"_s : u"before"_s });
+		Check(child.waitForFinished() && child.exitCode() == kAbruptExitCode,
+			"publication child terminated without destructors");
+		auto recovered = Sink(job);
+		const auto identity = Storage::PersistentDownloadAliasIdentity(
+			after ? job.destination : recovered.stagingPath());
+		Check(!identity.isEmpty(), "recover fixture identity");
+		if (!after) {
+			Check(recovered.inspectPublished(identity) == Result::Missing
+				&& recovered.open(true, identity) == Result::Ok && recovered.committedSize() == 3
+				&& recovered.publish(true) == Result::Ok, "finish interrupted rename");
+		}
+		auto final = Sink(job);
+		Check(final.inspectPublished(identity) == Result::Ok
+			&& final.purge(identity) == Result::Ok && Read(job.destination) == "end",
+			"reconcile published file across process exit");
+	}
+}
+
 void TestInvalidCheckpoint(const QTemporaryDir &dir) {
 	const auto job = Job(dir, u"invalid-checkpoint.bin"_s, 1);
 	auto sink = Sink(job);
@@ -298,6 +343,162 @@ void TestInvalidCheckpoint(const QTemporaryDir &dir) {
 	Check(sink.open(true) == Result::InvalidCheckpoint, "malformed checkpoint remains visible");
 }
 
+void TestFinalReadback(const QTemporaryDir &dir) {
+	const auto job = Job(dir, u"readback.bin"_s, kPart + 3);
+	auto fixture = std::make_unique<FaultFile>();
+	const auto device = fixture.get();
+	auto sink = Sink(job, std::move(fixture));
+	Check(sink.open(false) == Result::Ok, "open verification fixture");
+	const auto good = QByteArray(kPart, 'a');
+	Check(sink.write(0, good) == Result::Ok, "valid prefix");
+	device->fault = FaultFile::Fault::WrongBytes;
+	Check(sink.write(kPart, "end") == Result::Ok, "storage reported full write");
+	Check(sink.publish() == Result::Incomplete && !QFileInfo::exists(job.destination),
+		"successful write with wrong bytes cannot publish");
+	Check(sink.suspend() == Result::Ok, "suspend faulty writer");
+	const auto stop = std::atomic<bool>(true);
+	auto recovered = Sink(job);
+	Check(recovered.open(true, sink.identity(), false, false, &stop) == Result::TransferFailed,
+		"retirement interrupts verification without touching durable state");
+	Check(recovered.open(true, sink.identity()) == Result::Ok
+		&& recovered.committedSize() == kPart && !recovered.committed().testBit(1),
+		"retry retains only the correct chunk");
+	Check(recovered.write(kPart, "end") == Result::Ok
+		&& recovered.publish(true, &stop) != Result::Ok && !QFileInfo::exists(job.destination),
+		"stopped publication preserves staging");
+	Check(recovered.publish() == Result::Ok && Sha256(Read(job.destination)) == Sha256(good + "end"),
+		"readback recovery matches original content");
+}
+
+void TestAuthenticatedCheckpoint(const QTemporaryDir &dir) {
+	auto job = Job(dir, u"authenticated.bin"_s, kPart + 3);
+	job.checkpointKey = QByteArray(32, 'a');
+	auto sink = Sink(job);
+	Check(sink.open(false) == Result::Ok && sink.write(0, QByteArray(kPart, 'h')) == Result::Ok
+		&& sink.suspend() == Result::Ok, "write authenticated checkpoint");
+	const auto record = Read(sink.checkpointPath());
+	Check(!record.contains(job.checkpointKey) && record.at(7) == char(2),
+		"v2 sidecar carries no authentication key");
+	auto wrong = job;
+	wrong.checkpointKey = QByteArray(32, 'b');
+	Check(Sink(wrong).open(true, sink.identity()) == Result::InvalidCheckpoint,
+		"another registry key cannot resume this job");
+	wrong.checkpointKey.clear();
+	Check(Sink(wrong).open(true, sink.identity()) == Result::InvalidCheckpoint,
+		"legacy policy cannot read authenticated records");
+	auto metadata = Sink(job);
+	Check(metadata.inspectForResume(sink.identity()) == Result::Ok && metadata.committedSize() == 0,
+		"startup metadata inspection grants no verified chunks");
+	auto body = record.chopped(32);
+	body[7] = char(1);
+	Put(sink.checkpointPath(), body + Sha256(body));
+	Check(Sink(job).open(true, sink.identity()) == Result::InvalidCheckpoint,
+		"registry-owned policy rejects downgrade to a public checksum");
+	Put(sink.checkpointPath(), record);
+	auto valid = Sink(job);
+	Check(valid.open(true, sink.identity()) == Result::Ok && valid.committedSize() == kPart,
+		"original authenticated record restores the verified prefix");
+	Check(valid.write(kPart, "end") == Result::Ok && valid.publish() == Result::Ok,
+		"authenticated publication succeeds");
+}
+
+void TestOwnership(const QTemporaryDir &dir) {
+	const auto job = Job(dir, u"ownership.bin"_s, 2);
+	auto sink = Sink(job);
+	Check(sink.open(false) == Result::Ok, "create owned fixture");
+	auto other = Sink(job);
+	Check(other.open(true, sink.identity()) != Result::Ok, "one staging writer at a time");
+#ifdef Q_OS_WIN
+	auto writer = QFile(sink.stagingPath());
+	Check(!writer.open(QIODevice::ReadWrite | QIODevice::ExistingOnly),
+		"active Windows handle excludes another writer");
+#endif
+	Check(sink.write(0, "ok") == Result::Ok, "write verified data");
+	Check(QFile::rename(sink.checkpointPath(), dir.filePath(u"saved-checkpoint"_s)),
+		"move checkpoint before replacement");
+	Put(sink.checkpointPath(), "foreign checkpoint");
+	Check(sink.checkpoint() == Result::CheckpointFailed && sink.committedSize() == 0,
+		"ambiguous checkpoint cannot be overwritten");
+	Check(sink.cancel() == Result::RemoveFailed && Read(sink.checkpointPath()) == "foreign checkpoint",
+		"terminal cleanup leaves foreign sidecar intact");
+
+	const auto linkJob = Job(dir, u"linked.bin"_s, 1);
+	auto linked = Sink(linkJob);
+	Check(linked.open(false) == Result::Ok && linked.write(0, "x") == Result::Ok
+		&& linked.suspend() == Result::Ok, "create paused link fixture");
+	const auto alias = dir.filePath(u"other-name.bin"_s);
+#ifdef Q_OS_WIN
+	Check(CreateHardLinkW(QDir::toNativeSeparators(alias).toStdWString().c_str(),
+		QDir::toNativeSeparators(linked.stagingPath()).toStdWString().c_str(), nullptr),
+		"create NTFS hard-link fixture");
+#else
+	Check(::link(QFile::encodeName(linked.stagingPath()).constData(),
+		QFile::encodeName(alias).constData()) == 0, "create hard-link fixture");
+#endif
+	Check(Storage::PersistentDownloadAliasIdentity(alias) == linked.identity(),
+		"destination guard recognizes an alternate name");
+	Check(linked.open(true, linked.identity()) == Result::Replaced
+		&& linked.purge(linked.identity()) == Result::Replaced && Read(alias) == "x",
+		"refuse multiply linked stage for recovery and deletion");
+	Check(QFile::remove(alias) && linked.purge(linked.identity()) == Result::Ok,
+		"cleanup succeeds once the alias is removed");
+}
+
+void TestLinkedDirectory(const QTemporaryDir &dir) {
+	const auto target = dir.filePath(u"link-target"_s);
+	const auto link = dir.filePath(u"linked-directory"_s);
+	Check(QDir().mkdir(target), "create link target directory");
+#ifdef Q_OS_WIN
+	const auto directoryLink = QDir::toNativeSeparators(link).toStdWString();
+	const auto actualDirectory = QDir::toNativeSeparators(target).toStdWString();
+	if (!CreateSymbolicLinkW(directoryLink.c_str(), actualDirectory.c_str(),
+			SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
+		const auto error = GetLastError();
+		if (error == ERROR_PRIVILEGE_NOT_HELD || error == ERROR_INVALID_PARAMETER) {
+			qWarning() << "Skipping directory symlink fixture, Windows error" << error;
+			return;
+		}
+		Check(false, "create directory symlink on test volume");
+	}
+#else
+	Check(::symlink(QFile::encodeName(target).constData(), QFile::encodeName(link).constData()) == 0,
+		"create directory symlink on test volume");
+#endif
+	const auto job = Job(dir, u"linked-directory/denied.bin"_s, 1);
+	auto sink = Sink(job);
+	Check(!Storage::SafePersistentDownloadPath(job.destination) && sink.open(false) == Result::Replaced,
+		"linked ancestor prevents stage creation");
+	Check(QDir(target).isEmpty(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot),
+		"linked target remains untouched");
+#ifdef Q_OS_WIN
+	Check(RemoveDirectoryW(directoryLink.c_str()), "remove fixture link");
+#else
+	Check(::unlink(QFile::encodeName(link).constData()) == 0, "remove fixture link");
+#endif
+}
+
+void TestShuffledTransfer(const QTemporaryDir &dir) {
+	constexpr auto count = 73;
+	const auto job = Job(dir, u"shuffled.bin"_s, (count - 1) * qint64(kPart) + 11);
+	auto order = std::array<int, count>();
+	std::iota(order.begin(), order.end(), 0);
+	auto generator = std::mt19937(373);
+	std::shuffle(order.begin(), order.end(), generator);
+	auto sink = Sink(job);
+	Check(sink.open(false) == Result::Ok, "shuffled stage");
+	auto expected = QCryptographicHash(QCryptographicHash::Sha256);
+	for (auto i = 0; i < count; ++i) {
+		expected.addData(QByteArray(i + 1 == count ? 11 : kPart, char(i)));
+	}
+	for (const auto i : order) {
+		const auto part = QByteArray(i + 1 == count ? 11 : kPart, char(i));
+		Check(sink.write(qint64(i) * kPart, part) == Result::Ok
+			&& sink.write(qint64(i) * kPart, part) == Result::Ok, "out-of-order duplicate");
+	}
+	Check(sink.publish() == Result::Ok && Sha256(Read(job.destination)) == expected.result(),
+		"shuffled output matches sequential SHA-256");
+}
+
 void TestLargeOffset(const QTemporaryDir &dir) {
 	const auto offset = qint64(1) << 31;
 	const auto job = Job(dir, u"large.bin"_s, offset + 7);
@@ -305,7 +506,7 @@ void TestLargeOffset(const QTemporaryDir &dir) {
 	const auto device = fixture.get();
 	auto sink = Sink(job, std::move(fixture));
 	Check(sink.open(false) == Result::Ok, "create 64-bit fixture");
-	if (!device->sparse) {
+	if (!device->makeSparse()) {
 		qFatal("Sparse file support is required for the 64-bit offset test");
 	}
 	Check(sink.write(offset, "lastend") == Result::Ok, "write beyond signed boundary");
@@ -370,7 +571,25 @@ void TestRegistry(const QTemporaryDir &dir) {
 		.updated = 2000,
 		.state = State::Paused,
 	};
+	auto keyed = job;
+	keyed.file.id = QUuid::createUuid();
+	keyed.file.checkpointKey = QByteArray(32, 'k');
+	const auto mixed = Storage::SerializePendingDownloads(owner, { job, keyed });
+	const auto loaded = Storage::ParsePendingDownloads(owner, mixed);
+	Check(loaded && loaded->size() == 2 && loaded->front().file.checkpointKey.isEmpty()
+		&& loaded->back().file.checkpointKey == keyed.file.checkpointKey
+		&& Storage::SerializePendingDownloads(owner, *loaded) == mixed,
+		"legacy and authenticated jobs share an encrypted registry payload");
+	Check(!Storage::ParsePendingDownloads(owner + 1, mixed)
+		&& !Storage::ParsePendingDownloads(owner, mixed.chopped(1)), "keyed registry bounds and account");
 	const auto data = Storage::SerializePendingDownloads(owner, { job });
+	for (auto i = qsizetype(0); i < data.size(); ++i) {
+		Check(!Storage::ParsePendingDownloads(owner, data.first(i)), "reject every incomplete registry");
+	}
+	auto duplicate = data;
+	duplicate[19] = char(2);
+	duplicate.append(data.sliced(20));
+	Check(!Storage::ParsePendingDownloads(owner, duplicate), "reject duplicate identity on input");
 	const auto read = Storage::ParsePendingDownloads(owner, data);
 	Check(read && read->size() == 1, "load one registry entry");
 	Check(Storage::SerializePendingDownloads(owner, *read) == data,
@@ -404,6 +623,19 @@ void TestRegistry(const QTemporaryDir &dir) {
 		"allow recovery edges and reject terminal resurrection");
 
 	const auto path = dir.filePath(u"registry/atomic.bin"_s);
+	auto lock = Storage::LockPendingDownloadRegistry(path);
+	Check(bool(lock) && !Storage::LockPendingDownloadRegistry(path), "one registry owner");
+	lock.reset();
+	Check(bool(Storage::LockPendingDownloadRegistry(path)), "registry reusable after owner exits");
+	Check(!Storage::ValidPersistentDownloadPath(u"relative.bin"_s)
+		&& !Storage::ValidPersistentDownloadPath(dir.path() + u"/../other.bin"_s),
+		"reject relative and unnormalized paths");
+#ifdef Q_OS_WIN
+	for (const auto path : { u"C:/sample.bin:stream", u"C:/COM1.txt", u"C:/name. ",
+			u"//?/C:/sample.bin", u"//./device", u"C:/NUL/archive.bin" }) {
+		Check(!Storage::ValidPersistentDownloadPath(QString::fromUtf16(path)), "reject ambiguous name");
+	}
+#endif
 	const auto oldPayload = QByteArray("first opaque test payload");
 	const auto newPayload = QByteArray("new opaque test payload");
 	Check(Storage::ReplacePendingDownloadRegistry(path, oldPayload), "create checked registry");
@@ -848,7 +1080,11 @@ int main(int argc, char **argv) {
 	if (args.size() == 4 && args[1] == u"--write-and-exit"_s) {
 		WriteAndExit(args[2], args[3]);
 	}
-	const auto dir = QTemporaryDir();
+	if (args.size() == 5 && args[1] == u"--publication-exit"_s) {
+		ExitAtPublication(QUuid(args[2]), args[3], args[4] == u"after"_s);
+	}
+	const auto dir = QTemporaryDir(QDir(QFileInfo(QDir::tempPath()).canonicalFilePath())
+		.filePath(u"64gram-sink-XXXXXX"_s));
 	Check(dir.isValid(), "temporary directory");
 	TestRoundTrip(dir);
 	TestFaults(dir);
@@ -859,11 +1095,17 @@ int main(int argc, char **argv) {
 	TestAbruptExit(dir);
 	TestInvalidCheckpoint(dir);
 	TestLargeOffset(dir);
+	TestFinalReadback(dir);
+	TestOwnership(dir);
+	TestLinkedDirectory(dir);
+	TestAuthenticatedCheckpoint(dir);
+	TestShuffledTransfer(dir);
 	TestBatching(dir);
 	TestRequestGeneration();
 	TestRegistry(dir);
 	TestCreationRecovery(dir);
 	TestPublicationRecovery(dir);
+	TestPublicationExit(dir);
 	TestStreamingAttachment();
 	TestStreamedCheckpoint(dir);
 	TestStreamingMaximumOffsets();

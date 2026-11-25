@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QFile>
 #include <QtCore/QUuid>
 
+#include <atomic>
 #include <memory>
 
 namespace Storage {
@@ -22,6 +23,8 @@ namespace Storage {
 inline constexpr auto kPersistentDownloadPartSize = 128 * 1024;
 
 [[nodiscard]] bool FlushPersistentDownloadFile(QFileDevice &file);
+[[nodiscard]] bool ValidPersistentDownloadPath(const QString &path);
+[[nodiscard]] QByteArray PersistentDownloadAliasIdentity(const QString &path);
 [[nodiscard]] bool SafePersistentDownloadPath(const QString &path);
 [[nodiscard]] bool PersistentDownloadPathMissing(const QString &path);
 [[nodiscard]] bool FitsPersistentDownloadField(
@@ -56,6 +59,7 @@ public:
 		QString destination;
 		qint64 size = 0;
 		bool replace = false;
+		QByteArray checkpointKey;
 	};
 	enum class Result {
 		Ok,
@@ -81,8 +85,11 @@ public:
 		bool resume,
 		QByteArrayView expectedIdentity = {},
 		bool deferCheckpoint = false,
-		bool allowEmptyRecovery = false);
-	[[nodiscard]] Result inspectPublished(QByteArrayView expectedIdentity);
+		bool allowEmptyRecovery = false,
+		const std::atomic<bool> *stop = nullptr);
+	[[nodiscard]] Result inspectForResume(QByteArrayView expectedIdentity);
+	[[nodiscard]] Result inspectPublished(QByteArrayView expectedIdentity,
+		const std::atomic<bool> *stop = nullptr);
 	[[nodiscard]] bool matchesPublished(QByteArrayView expectedIdentity) const;
 	[[nodiscard]] Result purge(QByteArrayView expectedIdentity);
 	[[nodiscard]] bool removePublishedCheckpoint();
@@ -91,17 +98,21 @@ public:
 	[[nodiscard]] Result checkpoint();
 	[[nodiscard]] Result suspend();
 	[[nodiscard]] Result preparePublish();
-	[[nodiscard]] Result publish(bool keepCheckpoint = false);
+	[[nodiscard]] Result publish(bool keepCheckpoint = false, const std::atomic<bool> *stop = nullptr);
 	[[nodiscard]] Result cancel();
 
 	[[nodiscard]] const QBitArray &committed() const;
 	[[nodiscard]] qint64 committedSize() const;
 	[[nodiscard]] qint64 writtenSize() const;
+	[[nodiscard]] static QString CheckpointPath(const Job &job);
 	[[nodiscard]] QString stagingPath() const;
 	[[nodiscard]] QString checkpointPath() const;
 
 private:
-	[[nodiscard]] Result readCheckpoint(bool verify = true);
+	[[nodiscard]] Result readCheckpoint(bool verify = true, QFile *opened = nullptr,
+		const std::atomic<bool> *stop = nullptr);
+	[[nodiscard]] Result verifyParts(QBitArray &bitmap, const QByteArray &digests,
+		qint64 &verified, const std::atomic<bool> *stop);
 	void initializeCoverage();
 	[[nodiscard]] bool ownsStaging() const;
 	[[nodiscard]] qint64 partLength(qsizetype index) const;
@@ -112,6 +123,8 @@ private:
 	QString _stagingPath;
 	QByteArray _identity;
 	QByteArray _destinationIdentity;
+	QByteArray _checkpointDigest;
+	QByteArray _checkpointIdentity;
 	QByteArray _digests;
 	QBitArray _written;
 	QBitArray _committed;

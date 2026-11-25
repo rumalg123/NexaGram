@@ -78,7 +78,7 @@ Get-ChildItem -LiteralPath $dest -Force | Select-Object Name, Length
 | `job state 8`, `cancel cleanup`, `cancel cleanup deferred` | Cancellation is terminal. A file lock or changed artifact can defer cleanup. |
 | `backend streaming`, `stream detach`, `stream playback` | A streaming-backed file action detaches just the file consumer. |
 
-While incomplete, the final path stays absent or keeps its preexisting explicitly approved overwrite target. The directory holds the same `.64gram-<job>.part` and `.part.resume` pair through pause and resume. Completion publishes the expected final file and removes the pending artifacts after history acknowledgement. Cancellation deletes verified partial progress and never targets a completed file.
+Start with an unused final name. If a file later occupies the name, it stays intact and the partial remains available for retry. The directory holds the same `.64gram-<job>.part` and `.part.resume` pair through pause and resume. Completion publishes the expected final file and removes the pending artifacts after history acknowledgement. Cancellation deletes verified partial progress and never targets a completed file.
 
 ```powershell
 $fixture = 'Résumé α (Final).ZIP'

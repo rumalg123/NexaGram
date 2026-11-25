@@ -151,6 +151,11 @@ template <typename Read>
 		&& !QUuid::fromString(name.mid(prefix.size(), 36)).isNull();
 }
 
+[[nodiscard]] inline bool PersistentDownloadPerformanceLog() {
+	static const auto enabled = qgetenv("TDESKTOP_PERSISTENT_DOWNLOAD_PERF") == "1";
+	return enabled;
+}
+
 [[nodiscard]] inline const DownloadOverrides &PersistentDownloadOverrides() {
 	static const auto result = [] {
 		const auto read = [](const char *name) {

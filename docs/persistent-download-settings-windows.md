@@ -130,7 +130,7 @@ The standalone cases and local setting changes are deterministic. Telegram acces
 
 ## Storage, downgrade and cleanup
 
-The four preferences use the existing encrypted application settings record in the profile's `tdata` directory. A checked atomic replacement must succeed before the setting is reported saved. Power-loss durability remains filesystem- and device-dependent. Registry and checkpoint formats stay compatible. An upgrade discovers the old registry even with the main switch at its default Off.
+The four preferences use the existing encrypted application settings record in the profile's `tdata` directory. A checked atomic replacement must succeed before the setting is reported saved. Power-loss durability remains filesystem- and device-dependent. An upgrade discovers the old v1 registry even with the main switch at its default Off. Once the registry contains new keyed jobs, it uses v2 and requires a compatible client. Finish or cancel those jobs in the beta before downgrading.
 
 Close the isolated client before changing binaries or moving its profile. Pending destinations are absolute paths, so preserve the associated test destinations when revisiting a registry. Back up the isolated profile and test files before trying an older binary. Milestone 4 can manage the compatible registry with its original feature flag. Older builds can ignore pending jobs and may lack the necessary preference or registry support. Return to a compatible build to manage the jobs and avoid their reserved destinations while using an older build.
 

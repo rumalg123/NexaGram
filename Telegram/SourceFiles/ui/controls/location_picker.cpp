@@ -354,18 +354,22 @@ bool LocationPicker::Available(const LocationPickerConfig &config) {
 
 LocationPickerConfig ResolveMapsConfig(not_null<Main::Session*> session) {
 	const auto &appConfig = session->appConfig();
-	auto map = appConfig.get<base::flat_map<QString, QString>>(
+	const auto map = appConfig.get<base::flat_map<QString, QString>>(
 		u"tdesktop_config_map"_q,
 		base::flat_map<QString, QString>());
-	const auto &maps = map[u"maps"_q];
-	const auto &geo = map[u"geo"_q];
+	const auto maps = map.find(u"maps"_q);
+	const auto geo = map.find(u"geo"_q);
 	const auto fallback = LocationPickerConfig{
 		.mapsToken = u"pk.eyJ1Ijoiam9obi1wcmVzdG9uIiwiYSI6ImNseTVod2Y3MDBiczMyanM3d3E3NXloM3kifQ.K12vn1eHYqFAoqVWvnMXiA"_q,
 		.geoToken = u"pk.eyJ1Ijoiam9obi1wcmVzdG9uIiwiYSI6ImNseWg0OWpvNTAwa3AycnF5ZDM3a2dkYmUifQ.n12eA4c3AygrB9yinAp2Ww"_q,
 	};
 	return {
-		.mapsToken = maps.isEmpty() ? fallback.mapsToken : maps,
-		.geoToken = geo.isEmpty() ? fallback.geoToken : geo,
+		.mapsToken = (maps == end(map) || maps->second.isEmpty())
+			? fallback.mapsToken
+			: maps->second,
+		.geoToken = (geo == end(map) || geo->second.isEmpty())
+			? fallback.geoToken
+			: geo->second,
 	};
 }
 

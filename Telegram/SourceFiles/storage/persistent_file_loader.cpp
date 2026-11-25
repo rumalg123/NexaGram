@@ -11,11 +11,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_download_manager.h"
 #include "main/main_session.h"
 #include "platform/platform_file_utilities.h"
+#include "storage/download_policy.h"
 
 #include <crl/crl_object_on_queue.h>
 #include <QtCore/QDebug>
 #include <QtCore/QFileInfo>
 
+#include <algorithm>
 #include <atomic>
 
 namespace Storage {
@@ -54,6 +56,7 @@ struct PersistentFileLoader::Persistent {
 		= std::make_shared<std::atomic<bool>>(false);
 	State state = State::Idle;
 	Storage::PersistentDownloadRequests requests;
+	int peakOutstanding = 0;
 	int64 ready = 0;
 	int64 committed = 0;
 	DownloadRate rate;
@@ -75,7 +78,12 @@ PersistentFileLoader::PersistentFileLoader(
 	toCache, fromCloud, autoLoading, cacheTag) {
 }
 
-PersistentFileLoader::~PersistentFileLoader() = default;
+PersistentFileLoader::~PersistentFileLoader() {
+	if (_persistent && PersistentDownloadPerformanceLog()) {
+		qInfo() << "Download perf" << _persistent->id << "outstanding high water"
+			<< _persistent->peakOutstanding;
+	}
+}
 
 bool PersistentFileLoader::startPersistent() {
 	if (!_persistent) {
@@ -95,6 +103,10 @@ bool PersistentFileLoader::persistentCanRequest(int limit) const {
 
 int64 PersistentFileLoader::takePersistentOffset() {
 	const auto offset = _persistent->requests.take();
+	if (PersistentDownloadPerformanceLog()) {
+		_persistent->peakOutstanding = std::max(_persistent->peakOutstanding,
+			_persistent->requests.outstanding());
+	}
 	if (_persistent->trace) {
 		qInfo() << "Persistent download" << _persistent->id
 			<< "request offset" << offset << persistentBackend();
@@ -110,6 +122,9 @@ bool PersistentFileLoader::preservePersistentOnDestruction() {
 	}
 	const auto publishing = (_persistent->state == Persistent::State::Publishing);
 	_persistent->timer.cancel();
+	if (publishing || _persistent->state == Persistent::State::Opening) {
+		_persistent->cancelled->store(true);
+	}
 	if (!publishing) {
 		_persistent->worker.with([](Sink &sink) {
 			const auto result = sink.suspend();
@@ -218,6 +233,14 @@ void PersistentFileLoader::stopPersistentForUnavailableSource() {
 	failPersistent(Sink::Result::TransferFailed);
 }
 
+void PersistentFileLoader::interruptForRetirement() {
+	if (_persistent) {
+		_persistent->cancelled->store(true);
+		_persistent->state = Persistent::State::Failed;
+		stopPersistentRequests();
+	}
+}
+
 void PersistentFileLoader::openPersistent(bool resume) {
 	auto &state = *_persistent;
 	state.state = Persistent::State::Opening;
@@ -273,7 +296,7 @@ void PersistentFileLoader::openPersistent(bool resume) {
 		if (cancelled->load()) {
 			return;
 		}
-		const auto result = sink.open(resume, identity, !resume, initializing);
+		const auto result = sink.open(resume, identity, !resume, initializing, cancelled.get());
 		crl::on_main([done = std::move(done), result, identity = sink.identity(),
 				present = sink.committed(), size = sink.writtenSize()]() mutable {
 			done(result, std::move(identity), std::move(present), size);
@@ -458,6 +481,9 @@ void PersistentFileLoader::publishPersistent() {
 	Core::App().downloadManager().pendingLoaderUpdated(true);
 	stopPersistentRequests();
 	auto prepared = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result) {
+		if (_persistent->cancelled->load()) {
+			return;
+		}
 		if (result != Sink::Result::Ok
 			|| !Core::App().downloadManager().updatePending(
 				&session(), _persistent->id, PendingState::Finalizing)) {
@@ -467,6 +493,9 @@ void PersistentFileLoader::publishPersistent() {
 		}
 		_persistent->job.state = PendingState::Finalizing;
 		auto published = crl::guard(static_cast<FileLoader*>(this), [=](Sink::Result result) {
+			if (_persistent->cancelled->load()) {
+				return;
+			}
 			if (result != Sink::Result::Ok) {
 				failPersistent(result);
 				return;
@@ -480,8 +509,9 @@ void PersistentFileLoader::publishPersistent() {
 				}
 			}
 		});
-		_persistent->worker.with([published = std::move(published)](Sink &sink) mutable {
-			const auto result = sink.publish(true);
+		_persistent->worker.with([published = std::move(published),
+				stop = _persistent->cancelled](Sink &sink) mutable {
+			const auto result = sink.publish(true, stop.get());
 			crl::on_main([published = std::move(published), result]() mutable {
 				published(result);
 			});

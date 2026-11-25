@@ -206,6 +206,7 @@ QString Data::PendingDownloadDestinationError(const QString &path) {
 	using Destination = DownloadManager::PendingDestination;
 	switch (Core::App().downloadManager().pendingDestination(path)) {
 	case Destination::Available: return {};
+	case Destination::Unavailable: return tr::lng_downloads_registry_unavailable(tr::now);
 	case Destination::Checking: return tr::lng_downloads_destination_checking(tr::now);
 	case Destination::Reserved: return tr::lng_downloads_destination_reserved(tr::now);
 	}

@@ -28,6 +28,7 @@ public:
 	void suspendPersistent(bool manual = true, Fn<void()> done = nullptr);
 	void resumePersistent(const QByteArray &reference);
 	void stopPersistentForUnavailableSource();
+	void interruptForRetirement();
 
 protected:
 	PersistentFileLoader(

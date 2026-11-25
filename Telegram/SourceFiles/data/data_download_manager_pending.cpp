@@ -25,9 +25,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item.h"
 #include "main/main_session.h"
 #include "platform/platform_file_utilities.h"
+#include "storage/download_policy.h"
 #include "storage/storage_account.h"
 
 #include <QtCore/QDir>
+#include <QtCore/QDebug>
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QFileInfo>
 
 #include <algorithm>
@@ -180,7 +183,11 @@ struct ScanResult {
 	bool completeStage = false;
 };
 
-ScanResult InspectJob(const Job &job, bool alreadyCompleted) {
+ScanResult InspectJob(
+		const Job &job,
+		bool alreadyCompleted,
+		bool automatic,
+		const std::atomic<bool> &stop) {
 	auto sink = Sink(job.file);
 	if (job.state == State::Cancelling) {
 		return { .result = sink.purge(job.stagingIdentity) };
@@ -188,7 +195,7 @@ ScanResult InspectJob(const Job &job, bool alreadyCompleted) {
 		const auto published = (alreadyCompleted && Storage::PersistentDownloadPathMissing(
 				sink.checkpointPath()))
 			? sink.matchesPublished(job.stagingIdentity)
-			: (sink.inspectPublished(job.stagingIdentity) == Sink::Result::Ok);
+			: (sink.inspectPublished(job.stagingIdentity, &stop) == Sink::Result::Ok);
 		if (published) {
 			Platform::File::PostprocessDownloaded(job.file.destination);
 			return { .ready = job.file.size, .published = true };
@@ -199,7 +206,10 @@ ScanResult InspectJob(const Job &job, bool alreadyCompleted) {
 				&& Storage::PersistentDownloadPathMissing(sink.checkpointPath()))
 			? Sink::Result::Missing : Sink::Result::Replaced };
 	}
-	const auto result = sink.open(true, job.stagingIdentity);
+	if (automatic && (job.state == State::Downloading || job.state == State::Interrupted)) {
+		return { .result = sink.inspectForResume(job.stagingIdentity) };
+	}
+	const auto result = sink.open(true, job.stagingIdentity, false, false, &stop);
 	const auto ready = sink.writtenSize();
 	return {
 		.result = result,
@@ -226,11 +236,19 @@ bool DownloadManager::savePending(
 		not_null<Main::Session*> session,
 		Storage::PendingDownloadList changed) {
 	const auto i = _sessions.find(session);
-	if (i == end(_sessions) || !i->second.pendingReady) {
+	if (i == end(_sessions) || !i->second.pendingReady || !i->second.pendingLock) {
 		return false;
+	}
+	auto timer = QElapsedTimer();
+	if (Storage::PersistentDownloadPerformanceLog()) {
+		timer.start();
 	}
 	const auto result = session->local().pendingDownloadFile(
 		session->uniqueId()).write(changed);
+	if (timer.isValid()) {
+		qInfo() << "Download perf registry jobs" << changed.size()
+			<< "saved" << result << "ms" << timer.elapsed();
+	}
 	Storage::TracePendingDownload({}, result ? "registry saved" : "registry save failed");
 	if (result) {
 		i->second.pending = std::move(changed);
@@ -247,6 +265,14 @@ void DownloadManager::loadPending(
 	}
 	data.pendingReadStarted = true;
 	const auto file = session->local().pendingDownloadFile(session->uniqueId());
+	data.pendingLock = Storage::LockPendingDownloadRegistry(file.path);
+	if (!data.pendingLock) {
+		data.pendingStorageUnavailable = Core::App().downloadSettings().activation().enabled
+			|| !Storage::PersistentDownloadPathMissing(file.path)
+			|| !Storage::PersistentDownloadPathMissing(file.path + u".lock"_q);
+		Storage::TracePendingDownload({}, "registry lock unavailable");
+		return;
+	}
 	if (file.key && Storage::PersistentDownloadPathMissing(file.path)) {
 		data.pendingReady = true;
 		Storage::TracePendingDownload({}, "pending registry absent");
@@ -266,15 +292,23 @@ void DownloadManager::loadPending(
 		auto &data = sessionData(session);
 		data.pendingReading = false;
 		if (!jobs) {
+			data.pendingStorageUnavailable = true;
 			return;
 		}
 		data.pendingReady = true;
-		data.pending = *jobs;
+		auto ids = std::vector<QUuid>();
+		ids.reserve(jobs->size());
 		for (const auto &job : *jobs) {
+			ids.push_back(job.file.id);
 			data.pendingRuntime.emplace(job.file.id, PendingRuntime{ .startupResume = autoResume });
-			showPendingRow(session, job);
 		}
-		Storage::TracePendingDownload({}, "pending jobs discovered", int(jobs->size()));
+		data.pending = std::move(*jobs);
+		for (const auto &id : ids) {
+			if (const auto job = findPending(session, id)) {
+				showPendingRow(session, *job);
+			}
+		}
+		Storage::TracePendingDownload({}, "pending jobs discovered", int(ids.size()));
 		scanPending();
 	});
 	crl::async([file, done = std::move(done)]() mutable {
@@ -315,8 +349,10 @@ std::optional<Storage::PendingDownload> DownloadManager::reservePending(
 	const auto peer = item->history()->peer;
 	const auto channel = peer->asChannel();
 	const auto started = computeNextStartDate();
+	auto key = QByteArray(32, Qt::Uninitialized);
+	base::RandomFill(key.data(), key.size());
 	const auto job = Job{
-		.file = { QUuid::createUuid(), clean, document->size, replace },
+		.file = { QUuid::createUuid(), clean, document->size, replace, std::move(key) },
 		.peer = origin.peer.value,
 		.message = origin.msg.bare,
 		.channelAccess = channel ? quint64(channel->accessHash()) : quint64(0),
@@ -798,7 +834,11 @@ DownloadManager::PendingDestination DownloadManager::pendingDestination(const QS
 	const auto absolute = QDir::cleanPath(file.absoluteFilePath());
 	auto reading = false;
 	auto canonical = std::optional<QString>();
+	auto identity = QByteArray();
 	for (const auto &[session, data] : _sessions) {
+		if (data.pendingStorageUnavailable) {
+			return PendingDestination::Unavailable;
+		}
 		reading = reading || data.pendingReading;
 		if (data.pending.empty()) {
 			continue;
@@ -812,11 +852,20 @@ DownloadManager::PendingDestination DownloadManager::pendingDestination(const QS
 				}
 			}
 			canonical = resolved;
+			if (file.exists()) {
+				identity = Storage::PersistentDownloadAliasIdentity(resolved);
+			}
 			if (Storage::IsPendingDownloadArtifactName(QFileInfo(resolved).fileName())) {
 				return PendingDestination::Reserved;
 			}
 		}
 		for (const auto &job : data.pending) {
+			if (!identity.isEmpty()
+				&& (identity == job.stagingIdentity
+					|| identity == Storage::PersistentDownloadAliasIdentity(job.file.destination)
+					|| identity == Storage::PersistentDownloadAliasIdentity(Sink::CheckpointPath(job.file)))) {
+				return PendingDestination::Reserved;
+			}
 			if (SameDestination(job.file.destination, absolute)
 				|| (!canonical->isEmpty() && SameDestination(job.file.destination, *canonical))) {
 				return PendingDestination::Reserved;
@@ -851,12 +900,20 @@ void DownloadManager::scanPending() {
 				continue;
 			}
 			_pendingScanBusy = true;
+			const auto stop = std::make_shared<std::atomic<bool>>(false);
+			data.stopInspection = stop;
+			data.inspecting = job.file.id;
 			const auto weak = base::make_weak(session.get());
-			const auto alreadyCompleted = hasCompletedPending(session, job);
+			const auto alreadyCompleted = job.state == State::Finalizing && hasCompletedPending(session, job);
 			auto done = crl::guard(this, [=, id = job.file.id, state = job.state](ScanResult scan) {
 				_pendingScanBusy = false;
 				const auto session = weak.get();
 				const auto found = session ? findPending(session, id) : nullptr;
+				if (session && _sessions.contains(session)) {
+					auto &data = sessionData(session);
+					data.stopInspection.reset();
+					data.inspecting = QUuid();
+				}
 				if (!_pendingQuitting && found) {
 					const auto current = *found;
 					auto &runtime = sessionData(session).pendingRuntime[id];
@@ -897,8 +954,9 @@ void DownloadManager::scanPending() {
 				scanPending();
 				resolvePending();
 			});
-			crl::async([job, alreadyCompleted, done = std::move(done)]() mutable {
-				const auto result = InspectJob(job, alreadyCompleted);
+			const auto automatic = i->second.startupResume;
+			crl::async([job, alreadyCompleted, automatic, stop, done = std::move(done)]() mutable {
+				const auto result = InspectJob(job, alreadyCompleted, automatic, *stop);
 				crl::on_main([done = std::move(done), result]() mutable { done(result); });
 			});
 			return;
@@ -939,9 +997,9 @@ void DownloadManager::publishRecoveredPending(
 	});
 	crl::async([stop, job, done = std::move(done)]() mutable {
 		auto sink = Sink(job.file);
-		auto result = sink.open(true, job.stagingIdentity);
+		auto result = sink.open(true, job.stagingIdentity, false, false, stop.get());
 		if (result == Sink::Result::Ok) {
-			result = stop->load() ? Sink::Result::PublishFailed : sink.publish(true);
+			result = sink.publish(true, stop.get());
 		}
 		if (result == Sink::Result::Ok) {
 			Platform::File::PostprocessDownloaded(job.file.destination);
@@ -1158,6 +1216,10 @@ void DownloadManager::cancelPending(not_null<Main::Session*> session, const QUui
 	}
 	if ((job->state != State::Finalizing || (runtime.inspected && !runtime.stopPublication))
 		&& updatePending(session, jobId, State::Cancelling)) {
+		auto &data = sessionData(session);
+		if (data.inspecting == jobId && data.stopInspection) {
+			data.stopInspection->store(true);
+		}
 		runtime.inspected = false;
 		scanPending();
 	}
@@ -1262,7 +1324,13 @@ bool DownloadManager::persistentQuitPending() {
 	_pendingQuitting = true;
 	auto active = std::vector<DocumentData*>();
 	for (const auto &[session, data] : _sessions) {
+		if (data.stopInspection) {
+			data.stopInspection->store(true);
+		}
 		for (const auto &[id, runtime] : data.pendingRuntime) {
+			if (runtime.stopPublication) {
+				runtime.stopPublication->store(true);
+			}
 			if (runtime.active && runtime.active->canPauseDownload()) {
 				active.push_back(runtime.active);
 			}
@@ -1293,13 +1361,27 @@ bool DownloadManager::persistentQuitPending() {
 void DownloadManager::retirePending(not_null<Main::Session*> session) {
 	const auto file = session->local().pendingDownloadFile(session->uniqueId());
 	auto &data = sessionData(session);
+	if (!data.pendingLock) {
+		return;
+	}
+	if (data.stopInspection) {
+		data.stopInspection->store(true);
+	}
+	const auto active = data.pendingRuntime;
+	for (const auto &[id, runtime] : active) {
+		if (runtime.stopPublication) {
+			runtime.stopPublication->store(true);
+		}
+		if (runtime.active) {
+			runtime.active->interruptPendingForLogout();
+		}
+	}
 	auto jobs = data.pendingReady
 		? std::make_optional(data.pending)
 		: file.read();
 	if (!jobs || jobs->empty()) {
 		return;
 	}
-	const auto active = data.pendingRuntime;
 	for (auto &job : *jobs) {
 		job.state = State::Cancelling;
 	}
@@ -1309,9 +1391,6 @@ void DownloadManager::retirePending(not_null<Main::Session*> session) {
 		return;
 	}
 	for (const auto &[id, runtime] : active) {
-		if (runtime.stopPublication) {
-			runtime.stopPublication->store(true);
-		}
 		if (runtime.active) {
 			runtime.active->cancel();
 		}
@@ -1319,7 +1398,7 @@ void DownloadManager::retirePending(not_null<Main::Session*> session) {
 	Storage::TracePendingDownload({}, "logout retirement durable");
 	std::erase_if(*jobs, [&](const Job &job) {
 		const auto i = active.find(job.file.id);
-		return i != end(active) && (i->second.active || i->second.stopPublication);
+		return i != end(active) && i->second.active;
 	});
 	crl::async([jobs = std::move(*jobs)] {
 		for (const auto &job : jobs) {

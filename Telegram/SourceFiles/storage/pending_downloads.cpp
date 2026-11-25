@@ -13,28 +13,31 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QDebug>
 #include <QtCore/QDir>
 #include <QtCore/QFileInfo>
+#include <QtCore/QLockFile>
 #include <QtCore/QSaveFile>
 #include <QtCore/QSet>
 
+#include <algorithm>
 #include <utility>
 
 namespace Storage {
 namespace {
 
+using namespace Qt::StringLiterals;
 using State = PendingDownloadState;
 constexpr auto kMagic = quint32(0x36475052);
-constexpr auto kVersion = quint32(1);
+constexpr auto kLegacyVersion = quint32(1);
+constexpr auto kAuthenticatedVersion = quint32(2);
 constexpr auto kMaximumFileSize = qint64(4000) * 1024 * 1024;
 
 bool Valid(const PendingDownload &job) {
 	const auto state = quint8(job.state);
 	return !job.file.id.isNull()
+		&& (job.file.checkpointKey.isEmpty() || job.file.checkpointKey.size() == 32)
 		&& job.file.size > 0 && job.file.size <= kMaximumFileSize
 		&& job.file.destination.size() <= 4096
-		&& QFileInfo(job.file.destination).isAbsolute()
-		&& QDir::cleanPath(job.file.destination) == job.file.destination
-		&& !QFileInfo(job.file.destination).fileName().isEmpty()
-		&& !job.file.destination.contains(QChar(0))
+		&& ValidPersistentDownloadPath(job.file.destination)
+		&& !IsPendingDownloadArtifactName(QFileInfo(job.file.destination).fileName())
 		&& job.displayName.size() <= 512
 		&& job.peer && job.message > 0 && job.message <= 0x7FFFFFFF
 		&& job.document && job.started > 0 && job.updated > 0
@@ -88,7 +91,10 @@ QByteArray SerializePendingDownloads(
 	auto bytes = QByteArray();
 	auto stream = QDataStream(&bytes, QIODevice::WriteOnly);
 	stream.setVersion(QDataStream::Qt_5_1);
-	stream << kMagic << kVersion << account << quint32(jobs.size());
+	const auto keyed = std::any_of(jobs.begin(), jobs.end(), [](const auto &job) {
+		return !job.file.checkpointKey.isEmpty();
+	});
+	stream << kMagic << (keyed ? kAuthenticatedVersion : kLegacyVersion) << account << quint32(jobs.size());
 	auto ids = QSet<QUuid>();
 	for (const auto &job : jobs) {
 		if (!Valid(job) || ids.contains(job.file.id)) {
@@ -99,6 +105,9 @@ QByteArray SerializePendingDownloads(
 			<< quint8(job.file.replace) << job.stagingIdentity << job.peer
 			<< job.message << job.channelAccess << job.document
 			<< job.displayName << job.started << job.updated << quint8(job.state);
+		if (keyed) {
+			stream << job.file.checkpointKey;
+		}
 	}
 	return (stream.status() == QDataStream::Ok
 		&& bytes.size() <= kPendingDownloadRegistrySize)
@@ -120,11 +129,12 @@ std::optional<PendingDownloadList> ParsePendingDownloads(
 	auto count = quint32();
 	stream >> magic >> version >> owner >> count;
 	if (stream.status() != QDataStream::Ok || magic != kMagic
-		|| version != kVersion || owner != account || count > kPendingDownloadLimit) {
+		|| (version != kLegacyVersion && version != kAuthenticatedVersion) || owner != account || count > kPendingDownloadLimit) {
 		return std::nullopt;
 	}
 	auto jobs = PendingDownloadList();
 	jobs.reserve(count);
+	auto ids = QSet<QUuid>();
 	for (auto i = quint32(); i != count; ++i) {
 		auto job = PendingDownload();
 		auto replace = quint8();
@@ -143,22 +153,39 @@ std::optional<PendingDownloadList> ParsePendingDownloads(
 			return std::nullopt;
 		}
 		stream >> job.displayName >> job.started >> job.updated >> state;
+		if (version == kAuthenticatedVersion) {
+			if (!FitsPersistentDownloadField(stream, 32)) {
+				return std::nullopt;
+			}
+			stream >> job.file.checkpointKey;
+		}
 		job.file.replace = (replace == 1);
 		job.state = State(state);
 		if (stream.status() != QDataStream::Ok || replace > 1 || !Valid(job)) {
 			return std::nullopt;
 		}
-		for (const auto &existing : jobs) {
-			if (existing.file.id == job.file.id) {
-				return std::nullopt;
-			}
+		if (ids.contains(job.file.id)) {
+			return std::nullopt;
 		}
+		ids.insert(job.file.id);
 		jobs.push_back(std::move(job));
 	}
 	if (!stream.atEnd()) {
 		return std::nullopt;
 	}
 	return jobs;
+}
+
+std::shared_ptr<QLockFile> LockPendingDownloadRegistry(const QString &path) {
+	const auto lockPath = path + u".lock"_s;
+	if (!SafePersistentDownloadPath(lockPath)
+		|| !QDir().mkpath(QFileInfo(path).absolutePath())
+		|| !SafePersistentDownloadPath(lockPath)) {
+		return nullptr;
+	}
+	auto lock = std::make_shared<QLockFile>(lockPath);
+	lock->setStaleLockTime(0);
+	return lock->tryLock(0) ? lock : nullptr;
 }
 
 bool ReplacePendingDownloadRegistry(const QString &path, QByteArrayView encrypted) {

@@ -4,7 +4,7 @@ Use a separate test account and test profile. This guide begins with the playbac
 
 ## Build and run the standalone tests
 
-Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio 2022. Select **Debug | x64**. Build **Telegram** and then **test_persistent_file_sink** in the **(tests)** group. The solution may update its project files when Visual Studio sees the new sources. Keep the existing build directory and dependencies.
+Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio. Select **Debug | x64**. Build **Telegram** and then **test_persistent_file_sink** in the **(tests)** group. The solution may update its project files when Visual Studio sees the new sources. Keep the existing build directory and dependencies.
 
 - Client executable is `D:\TBuild\tdesktop\out\Debug\64Gram.exe`.
 - Test executable is `D:\TBuild\tdesktop\out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe`.
@@ -90,7 +90,7 @@ Expect `backend streaming` and `stream attach <id>` for the shared downloader. A
 | `source and permissions validated`, `startup resume decision`, `suspend checkpoint` | The existing account recovery and pause lifecycle. |
 | `job state 7`, `published`, `completed history durable`, `job retired` | Publication and acknowledgement precede cleanup. |
 
-Before completion, expect `.64gram-<job-guid>.part` and `.64gram-<job-guid>.part.resume` under `$dest`. The final path is absent or holds the previous explicitly approved overwrite target. After completion, expect one final file, one completed row, and removal of the staging pair after history acknowledgement. Keep the first run's `log.txt` in `$lab` if you need to compare runs, because each launch recreates it.
+Before completion, expect `.64gram-<job-guid>.part` and `.64gram-<job-guid>.part.resume` under `$dest`. Start with an unused final name. An occupied final name prevents publication and leaves the partial available for retry. After completion, expect one final file, one completed row, and removal of the staging pair after history acknowledgement. Keep the first run's `log.txt` in `$lab` if you need to compare runs, because each launch recreates it.
 
 ## Essential acceptance tests
 

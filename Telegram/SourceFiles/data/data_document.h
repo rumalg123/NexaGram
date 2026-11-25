@@ -170,6 +170,7 @@ public:
 	void resumeDownload();
 	void resumeValidatedPendingDownload();
 	void stopPendingForUnavailableSource();
+	void interruptPendingForLogout();
 	void cancel();
 	[[nodiscard]] bool cancelled() const;
 	void resetCancelled();

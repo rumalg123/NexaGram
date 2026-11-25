@@ -9,8 +9,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "storage/persistent_file_sink.h"
 
+#include <memory>
 #include <optional>
 #include <vector>
+
+class QLockFile;
 
 namespace Storage {
 
@@ -52,6 +55,7 @@ inline constexpr auto kPendingDownloadRegistrySize = 2 * 1024 * 1024;
 [[nodiscard]] std::optional<PendingDownloadList> ParsePendingDownloads(
 	quint64 account,
 	const QByteArray &bytes);
+[[nodiscard]] std::shared_ptr<QLockFile> LockPendingDownloadRegistry(const QString &path);
 [[nodiscard]] bool ReplacePendingDownloadRegistry(
 	const QString &path,
 	QByteArrayView encrypted);

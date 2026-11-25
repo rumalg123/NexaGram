@@ -4,7 +4,7 @@ Use a separate 64Gram profile, an authorized test account, and non-sensitive fil
 
 ## Build the existing solution
 
-1. Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio 2022. Select **Debug** and **x64**.
+1. Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio. Select **Debug** and **x64**.
 2. Build the **Telegram** project. Allow the solution's normal CMake regeneration if Visual Studio requests it for the new source entries. Keep the existing build tree and dependencies.
 3. Build the **test_persistent_file_sink** project in the **(tests)** group separately. This project is excluded from the default build.
 4. The client is `D:\TBuild\tdesktop\out\Debug\64Gram.exe`. The test program is `D:\TBuild\tdesktop\out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe`.
@@ -54,7 +54,7 @@ Remove-Item Env:TDESKTOP_EXPERIMENTAL_RESUME_ON_STARTUP -ErrorAction SilentlyCon
 
 ## Observe artifacts and logs
 
-While a persistent transfer is incomplete, expect an application-owned `.64gram-<job-id>.part` and adjacent `.64gram-<job-id>.part.resume`. The final path should be absent, or still contain the previously approved overwrite target. After successful publication and history acknowledgement, expect the final file and one completed Downloads row. The staging file and sidecar should be gone.
+While a persistent transfer is incomplete, expect an application-owned `.64gram-<job-id>.part` and adjacent `.64gram-<job-id>.part.resume`. The final path stays absent until publication unless another file occupies it. The beta refuses to publish over that file, even if the job originally approved replacement. After successful publication and history acknowledgement, expect the final file and one completed Downloads row. The staging file and sidecar should be gone.
 
 ```powershell
 $log = Join-Path $profile 'log.txt'
@@ -159,7 +159,7 @@ Start a separate fixture for each destructive case. Changes to test files below 
 | Truncated staging file | With the client closed, shorten the staging file to cut through a known committed chunk. Relaunch and Resume. | Coverage beyond the new extent is dropped. Earlier valid offsets remain committed. Final SHA-256 matches. |
 | Missing stage, missing checkpoint, or corrupt checkpoint | On three independent stopped fixtures, respectively move the stage aside, move the sidecar aside, or keep a copy and replace the sidecar with incomplete test bytes. Relaunch and try Resume. | The saved job remains visible. There is no recreated known staging file, no trust in file length, and no final output. Put the original artifact back in place with the client stopped and try again. |
 | Replaced staging file | With the test client stopped, rename the actual staging file within its directory. Put an unrelated file of the same length at the old staging name. Resume or Cancel. | The replacement is rejected and the unrelated file survives. Restore the original filename while the client is stopped before retrying. |
-| Destination collision | During a fresh download that did not approve overwrite, create a non-sensitive sentinel at the exact final path. Let the job reach finalization. Move the sentinel aside, then choose Resume after restart or from the failed transfer row. | The sentinel is never overwritten. A full valid partial remains retryable. The retry needs zero network chunks if all committed chunks verify. |
+| Destination collision | During a fresh download, create a non-sensitive sentinel at the exact final path. Let the job reach finalization. Move the sentinel aside, then choose Resume after restart or from the failed transfer row. | The sentinel is never overwritten. A full valid partial remains retryable. The retry needs zero network chunks if all committed chunks verify. |
 | Final rename failure or failed storage write | Use a small isolated test volume or a test handle that prevents rename. Keep enough space on the profile volume for job metadata, wait for the error, release the lock or free the test space, then Resume. | No unrelated file is replaced. Previously committed chunks are reused. No `completed history durable` appears before publication. |
 | Finalization crash windows | The standalone test deterministically exercises the disk state immediately before and after rename. In the client, observe `job state 7` or `published` and force stop around those boundaries. Repeat with fresh fixtures if the process finishes cleanup first. | Before rename, the complete partial can finish with no missing requests. After rename, one completed row is reconciled without redownloading or replacing the final file. This UI timing test is probabilistic. |
 | Cancellation during download and during cleanup | Pause or run an eligible job. Right-click its Downloads row and choose **Cancel download**. Test ordinary completion once. Repeat while holding a test handle on the staging file to delay cleanup and then force-stop or quit. Release the handle before relaunch. | Cancellation persists once state 8 is logged. The job never appears or requests chunks again. Startup removes only verified owned artifacts. Failed cleanup leaves a hidden tombstone. |
@@ -201,7 +201,9 @@ Use a controlled group or channel and a second test account when the server must
 
 ## Persistence boundaries
 
-Registry version 1 uses the existing local account encryption and a bounded record list. Its owner includes the authenticated user ID and Telegram network environment. A job records the original message, document, exact byte count, destination, staging identity, timestamps, and intent. The job UUID and destination determine both staging paths. Version 1 supports the original document byte stream. The sidecar holds the chunk bitmap and SHA-256 values. The completed-download history keeps its existing encoding.
+Both registry versions use local account encryption and a bounded record list. The owner includes the authenticated user ID and Telegram network environment. A job records the original message, document, exact byte count, destination, staging identity, timestamps, and intent. The job UUID and destination determine both staging paths. The sidecar holds the chunk bitmap and SHA-256 values. The completed-download history keeps its existing encoding.
+
+New jobs use authenticated v2 checkpoints. The registry uses v2 when at least one keyed job is present. Historical v1 jobs remain readable in trusted folders. Older builds cannot manage a registry containing keyed jobs. See the audit for the format and trust boundaries. [Engineering audit](persistent-downloads-engineering-audit.md)
 
 | Durable state | Recovery |
 |---|---|

@@ -5865,6 +5865,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_downloads_resumable_start_failed" = "Could not start the resumable download. Check Downloads for an existing job or try again.";
 "lng_downloads_cancel_individual" = "Cancel this download and permanently delete its saved incomplete progress?";
 "lng_downloads_destination_checking" = "64Gram is still checking for incomplete downloads. Try saving again in a moment.";
+"lng_downloads_registry_unavailable" = "Could not check saved download paths. Close other clients using this profile, check access to local storage, then restart and try again.";
+"lng_downloads_choose_unused_destination" = "Resumable downloads need an unused filename. Choose a different name or move the existing file and try again.";
 "lng_downloads_destination_reserved" = "This path is reserved by resumable downloads. Choose a different filename or manage the existing job in Downloads.";
 "lng_downloads_status_preparing" = "Preparing download";
 "lng_downloads_status_downloading" = "Downloading";

@@ -143,7 +143,7 @@ public:
 	[[nodiscard]] bool pendingBatchActive(uint64 account) const;
 	[[nodiscard]] bool hasActivePendingDownloads() const;
 	[[nodiscard]] bool hasPendingDownloads() const;
-	enum class PendingDestination { Available, Checking, Reserved };
+	enum class PendingDestination { Available, Checking, Reserved, Unavailable };
 	[[nodiscard]] PendingDestination pendingDestination(const QString &path) const;
 	void loadPending(not_null<Main::Session*> session, bool restoredFromStorage);
 	void pendingLoaderUpdated(bool transition, Storage::PendingDownloadId id = {});
@@ -240,6 +240,10 @@ private:
 	struct SessionData {
 		Storage::PendingDownloadList pending;
 		base::flat_map<QUuid, PendingRuntime> pendingRuntime;
+		std::shared_ptr<QLockFile> pendingLock;
+		std::shared_ptr<std::atomic<bool>> stopInspection;
+		QUuid inspecting;
+		bool pendingStorageUnavailable = false;
 		bool pendingReady = false;
 		bool pendingReadStarted = false;
 		bool pendingReading = false;
