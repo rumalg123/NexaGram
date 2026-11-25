@@ -1724,6 +1724,7 @@ PRIVATE
     media/streaming/media_streaming_common.h
     media/streaming/media_streaming_document.cpp
     media/streaming/media_streaming_document.h
+    media/streaming/media_streaming_download_attachment.h
     media/streaming/media_streaming_file.cpp
     media/streaming/media_streaming_file.h
     media/streaming/media_streaming_file_delegate.h
@@ -2146,6 +2147,8 @@ PRIVATE
     storage/file_download_mtproto.h
     storage/persistent_file_sink.cpp
     storage/persistent_file_sink.h
+    storage/persistent_file_loader.cpp
+    storage/persistent_file_loader.h
     storage/pending_downloads.cpp
     storage/pending_downloads.h
     storage/file_download_web.cpp

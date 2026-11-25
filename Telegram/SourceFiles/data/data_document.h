@@ -28,6 +28,7 @@ enum class NameType : uchar;
 
 namespace Storage {
 struct PendingDownload;
+class PersistentFileLoader;
 class StreamedFileDownloader;
 namespace Cache {
 struct Key;
@@ -411,7 +412,11 @@ private:
 	bool enforceNameType(Core::NameType nameType);
 
 	void finishLoad();
-	[[nodiscard]] mtpFileLoader *nativeFileLoader() const;
+	[[nodiscard]] Storage::PersistentFileLoader *persistentFileLoader() const;
+	[[nodiscard]] std::unique_ptr<Storage::PersistentFileLoader> makePersistentLoader(
+		Storage::PendingDownload job,
+		Data::FileOrigin origin,
+		std::shared_ptr<Media::Streaming::Reader> reader);
 	[[nodiscard]] std::unique_ptr<mtpFileLoader> makeNativeLoader(
 		Data::FileOrigin origin,
 		const QString &toFile,

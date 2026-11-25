@@ -10,6 +10,7 @@ init_non_host_target(test_persistent_file_sink "(tests)")
 target_include_directories(test_persistent_file_sink PRIVATE ${src_loc})
 nice_target_sources(test_persistent_file_sink ${src_loc}
 PRIVATE
+    media/streaming/media_streaming_download_attachment.h
     storage/persistent_file_sink.cpp
     storage/persistent_file_sink.h
     storage/pending_downloads.cpp

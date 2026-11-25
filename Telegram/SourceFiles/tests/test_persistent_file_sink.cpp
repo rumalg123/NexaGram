@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/persistent_file_sink.h"
 #include "storage/pending_downloads.h"
+#include "media/streaming/media_streaming_download_attachment.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QCryptographicHash>
@@ -495,6 +496,119 @@ void TestPublicationRecovery(const QTemporaryDir &dir) {
 		&& !unrelated.matchesPublished(identity), "same bytes with different identity are unrelated");
 }
 
+void TestStreamingAttachment() {
+	using namespace Media::Streaming;
+	auto file = DownloadAttachment();
+	auto remote = PartRequestOwners();
+	auto order = SharedRequestOrder();
+	using Consumer = PartRequestOwners::Consumer;
+	using Offset = PartRequestOwners::Offset;
+	for (auto i = 0; i != 4; ++i) {
+		Check(!order.takeDownload(true, true), "playback has the first four shared scheduling turns");
+	}
+	Check(order.takeDownload(true, true) && order.takeDownload(false, true)
+		&& !order.takeDownload(true, false), "download is serviced during continued playback");
+	const auto start = file.attach();
+	const auto seek = quint32(1) << 31;
+	const auto last = seek + 3 * kPart;
+	remote.add(Consumer::Playback, seek);
+	remote.add(Consumer::Playback, seek + kPart);
+	Check(file.request(start, last) && file.request(start, seek),
+		"first attachment accepts nonzero, noncontiguous and descending offsets");
+	Check(!file.request(start, last), "duplicate attachment request is ignored");
+	remote.add(Consumer::Download, last);
+	remote.add(Consumer::Download, seek);
+	Check(file.detach(start), "pause detaches its generation");
+	Check(remote.detach(Consumer::Download) == std::set<Offset>{ last },
+		"pause cancels only the download-only network offset");
+	Check(remote.contains(Consumer::Playback, seek)
+		&& remote.contains(Consumer::Playback, seek + kPart),
+		"playback and seek requests survive pausing the download");
+
+	const auto resumed = file.attach();
+	Check(resumed != start && file.request(resumed, seek) && file.request(resumed, last),
+		"reattach starts a new generation");
+	Check(!file.consume(start, seek) && !file.detach(start) && !file.request(start, last),
+		"queued delivery, detach and request from past generation are rejected");
+	remote.add(Consumer::Download, seek);
+	remote.add(Consumer::Download, last);
+	Check(remote.detach(Consumer::Playback) == std::set<Offset>{ seek + kPart },
+		"stopping playback leaves shared and download-only offsets scheduled");
+	Check(remote.contains(Consumer::Download, seek), "shared request survives closing playback");
+	Check(file.consume(resumed, last) && !file.consume(resumed, last),
+		"one accepted delivery per offset per attachment");
+	Check(remote.release(Consumer::Download, last)
+		&& !remote.release(Consumer::Download, last), "transport accounting released once");
+	Check(file.detach(resumed) && !file.consume(resumed, seek),
+		"late delivery cannot apply after terminal cancellation");
+	Check(remote.detach(Consumer::Download) == std::set<Offset>{ seek },
+		"the last remaining download offset is released");
+}
+
+void TestStreamedCheckpoint(const QTemporaryDir &dir) {
+	using namespace Media::Streaming;
+	const auto fixture = Job(dir, u"streamed-chunks.bin"_s, 2 * kPart + 7);
+	const auto first = QByteArray(kPart, 'a');
+	const auto second = QByteArray(kPart, 'b');
+	const auto tail = QByteArray(7, 'c');
+	auto attachment = DownloadAttachment();
+	const auto initial = attachment.attach();
+	Check(attachment.request(initial, 0)
+		&& attachment.request(initial, kPart)
+		&& attachment.request(initial, 2 * kPart), "request initial streaming batch");
+	auto identity = QByteArray();
+	{
+		auto sink = Sink(fixture);
+		Check(sink.open(false) == Result::Ok, "create streaming staging file");
+		identity = sink.identity();
+		Check(IsCompletePart(fixture.size, 2 * kPart, tail.size(), kPart)
+			&& attachment.consume(initial, 2 * kPart)
+			&& sink.write(2 * kPart, tail) == Result::Ok, "accept cached short tail out of order");
+		Check(!IsCompletePart(fixture.size, kPart, 7, kPart)
+			&& attachment.pending(initial, kPart), "invalid cached chunk cannot satisfy a request");
+		Check(!attachment.consume(initial, 2 * kPart)
+			&& attachment.consume(initial, 0)
+			&& sink.write(0, first) == Result::Ok, "ignore duplicate before writing");
+		Check(sink.committed().count(true) == 0 && sink.suspend() == Result::Ok,
+			"written streaming bytes become durable after checkpoint");
+	}
+	Check(attachment.detach(initial), "suspend streaming batch");
+	auto sink = Sink(fixture);
+	Check(sink.open(true, identity) == Result::Ok, "reopen streaming checkpoint");
+	auto offsets = Storage::PersistentDownloadRequests();
+	offsets.reset(sink.committed());
+	const auto resumed = attachment.attach();
+	const auto missing = offsets.take();
+	Check(missing == kPart && offsets.empty()
+		&& attachment.request(resumed, missing), "resume only the missing middle offset");
+	Check(!attachment.consume(initial, missing) && attachment.consume(resumed, missing)
+		&& sink.write(missing, second) == Result::Ok, "write only the current attachment delivery");
+	Check(sink.publish() == Result::Ok
+		&& Sha256(Read(fixture.destination)) == Sha256(first + second + tail),
+		"persistent streaming fixture publishes the expected SHA-256");
+}
+
+void TestStreamingMaximumOffsets() {
+	using namespace Media::Streaming;
+	const auto limit = qint64(4000) * 1024 * 1024;
+	const auto boundary = qint64(1) << 31;
+	const auto size = limit - 11;
+	const auto last = limit - kPart;
+	auto covered = QBitArray(limit / kPart, true);
+	for (const auto offset : { boundary - kPart, boundary, boundary + kPart, last }) {
+		covered.clearBit(offset / kPart);
+	}
+	auto requests = Storage::PersistentDownloadRequests();
+	requests.reset(std::move(covered));
+	for (const auto offset : { boundary - kPart, boundary, boundary + kPart, last }) {
+		Check(requests.take() == offset, "preserve 64-bit signed-boundary and maximum offsets");
+		Check(IsCompletePart(size, offset, (offset == last) ? kPart - 11 : kPart, kPart),
+			"accept exact actual size at large offset");
+	}
+	Check(requests.empty() && !IsCompletePart(size, last, kPart, kPart)
+		&& !IsCompletePart(size, limit, 0, kPart), "reject oversized final part and past end");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -519,6 +633,9 @@ int main(int argc, char **argv) {
 	TestRegistry(dir);
 	TestCreationRecovery(dir);
 	TestPublicationRecovery(dir);
+	TestStreamingAttachment();
+	TestStreamedCheckpoint(dir);
+	TestStreamingMaximumOffsets();
 	qInfo("Persistent file sink tests passed.");
 	return EXIT_SUCCESS;
 }

@@ -42,22 +42,35 @@ int64 LoaderMtproto::size() const {
 	return _size;
 }
 
+uint64 LoaderMtproto::documentId() const {
+	return objectId();
+}
+
+void LoaderMtproto::updateReference(const QByteArray &reference) {
+	updateFileReference(reference);
+}
+
 void LoaderMtproto::load(int64 offset) {
-	crl::on_main(this, [=] {
-		if (_downloader) {
-			auto bytes = _downloader->readLoadedPart(offset);
-			if (!bytes.isEmpty()) {
-				cancelForOffset(offset);
-				_parts.fire({ offset, std::move(bytes) });
-				return;
-			}
-		}
-		if (haveSentRequestForOffset(offset)) {
+	_downloadRequested.remove(offset);
+	if (_downloader) {
+		auto bytes = _downloader->readLoadedPart(offset);
+		if (!bytes.isEmpty()) {
+			cancelForOffset(offset);
+			_parts.fire({ offset, std::move(bytes) });
 			return;
-		} else if (_requested.add(offset)) {
-			addToQueueWithPriority();
 		}
-	});
+	}
+	if (haveSentRequestForOffset(offset)) {
+		return;
+	} else if (_requested.add(offset)) {
+		addToQueueWithPriority();
+	}
+}
+
+void LoaderMtproto::loadForDownload(int64 offset) {
+	if (!haveSentRequestForOffset(offset) && _downloadRequested.add(offset)) {
+		addToQueueWithPriority();
+	}
 }
 
 void LoaderMtproto::addToQueueWithPriority() {
@@ -68,32 +81,33 @@ void LoaderMtproto::stop() {
 	crl::on_main(this, [=] {
 		cancelAllRequests();
 		_requested.clear();
+		_downloadRequested.clear();
+		_requestOrder = {};
 		removeFromQueue();
 	});
 }
 
 void LoaderMtproto::tryRemoveFromQueue() {
 	crl::on_main(this, [=] {
-		if (_requested.empty() && !haveSentRequests()) {
+		if (!readyToRequest() && !haveSentRequests()) {
 			removeFromQueue();
 		}
 	});
 }
 
 void LoaderMtproto::cancel(int64 offset) {
-	crl::on_main(this, [=] {
-		cancelForOffset(offset);
-	});
+	cancelForOffset(offset);
 }
 
 void LoaderMtproto::cancelForOffset(int64 offset) {
 	if (haveSentRequestForOffset(offset)) {
 		cancelRequestForOffset(offset);
-		if (!_requested.empty()) {
+		if (readyToRequest()) {
 			addToQueueWithPriority();
 		}
 	} else {
 		_requested.remove(offset);
+		_downloadRequested.remove(offset);
 	}
 }
 
@@ -117,17 +131,20 @@ void LoaderMtproto::setPriority(int priority) {
 		return;
 	}
 	_priority = priority;
-	if (haveSentRequests()) {
+	if (readyToRequest() || haveSentRequests()) {
 		addToQueueWithPriority();
 	}
 }
 
 bool LoaderMtproto::readyToRequest() const {
-	return !_requested.empty();
+	return !_requested.empty() || !_downloadRequested.empty();
 }
 
 int64 LoaderMtproto::takeNextRequestOffset() {
-	const auto offset = _requested.take();
+	const auto download = _requestOrder.takeDownload(
+		!_requested.empty(),
+		!_downloadRequested.empty());
+	const auto offset = download ? _downloadRequested.take() : _requested.take();
 	Assert(offset.has_value());
 
 	const auto time = crl::now();

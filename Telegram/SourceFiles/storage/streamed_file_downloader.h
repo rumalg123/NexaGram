@@ -7,7 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "storage/file_download.h"
+#include "storage/persistent_file_loader.h"
 #include "storage/cache/storage_cache_types.h"
 #include "data/data_file_origin.h"
 
@@ -20,7 +20,7 @@ struct LoadedPart;
 
 namespace Storage {
 
-class StreamedFileDownloader final : public FileLoader {
+class StreamedFileDownloader final : public PersistentFileLoader {
 public:
 	StreamedFileDownloader(
 		not_null<Main::Session*> session,
@@ -48,12 +48,20 @@ public:
 	QByteArray readLoadedPart(int64 offset);
 
 private:
+	const char *persistentBackend() const override;
+	void requestPersistentParts() override;
+	void detachPersistentTransport() override;
+	void persistentPartWritten(int64 offset) override;
+	void updatePersistentReference(const QByteArray &reference) override;
+
 	void startLoading() override;
 	Cache::Key cacheKey() const override;
 	std::optional<MediaKey> fileLocationKey() const override;
 	void cancelHook() override;
 	void requestParts();
 	void requestPart();
+	void attachReader();
+	void detachReader();
 
 	void savePart(const Media::Streaming::LoadedPart &part);
 
@@ -62,6 +70,7 @@ private:
 	Cache::Key _cacheKey;
 	std::optional<MediaKey> _fileLocationKey;
 	std::shared_ptr<Media::Streaming::Reader> _reader;
+	uint64 _attachment = 0;
 
 	std::vector<bool> _partIsSaved; // vector<bool> :D
 	mutable int _nextPartIndex = 0;

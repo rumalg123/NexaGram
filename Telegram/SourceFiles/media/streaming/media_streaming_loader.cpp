@@ -6,14 +6,13 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/streaming/media_streaming_loader.h"
+#include "media/streaming/media_streaming_download_attachment.h"
 
 namespace Media {
 namespace Streaming {
 
 bool LoadedPart::valid(int64 size) const {
-	return (offset != kFailedOffset)
-		&& ((bytes.size() == Loader::kPartSize)
-			|| (offset + bytes.size() == size));
+	return IsCompletePart(size, offset, bytes.size(), Loader::kPartSize);
 }
 
 bool operator<(

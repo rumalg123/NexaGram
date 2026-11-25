@@ -115,19 +115,50 @@ std::optional<QByteArray> SourceReference(
 			if (file.vttl_seconds() || !document || document->type() != mtpc_document) {
 				continue;
 			}
-			const auto &doc = document->c_document();
-			if (doc.vid().v == job.document && doc.vsize().v == job.file.size) {
+			const auto matches = [&](const MTPDocument &candidate) {
+				return candidate.type() == mtpc_document
+					&& candidate.c_document().vid().v == job.document
+					&& candidate.c_document().vsize().v == job.file.size;
+			};
+			const auto selected = matches(*document)
+				? &*document
+				: [&]() -> const MTPDocument* {
+					const auto variants = file.valt_documents();
+					if (!variants) {
+						return nullptr;
+					}
+					const auto &documents = variants->v;
+					const auto i = std::find_if(
+						documents.cbegin(),
+						documents.cend(),
+						matches);
+					return (i == documents.cend()) ? nullptr : &*i;
+				}();
+			if (selected) {
 				const auto permission = PeerAllowsSaving(data.vchats(), PeerId(job.peer));
 				if (!permission) {
 					return QByteArray();
 				}
 				return *permission
-					? std::make_optional(doc.vfile_reference().v)
+					? std::make_optional(selected->c_document().vfile_reference().v)
 					: std::nullopt;
 			}
 		}
 		return std::nullopt;
 	});
+}
+
+DocumentData *PendingSourceDocument(HistoryItem *item, const Job &job) {
+	const auto media = item ? item->media() : nullptr;
+	const auto primary = media ? media->document() : nullptr;
+	if (!primary || primary->id == job.document) {
+		return primary;
+	}
+	const auto &variants = primary->resolveQualities(item);
+	const auto i = ranges::find_if(variants, [&](const auto &variant) {
+		return variant->id == job.document;
+	});
+	return (i == end(variants)) ? nullptr : i->get();
 }
 
 struct ScanResult {
@@ -242,7 +273,8 @@ std::optional<Storage::PendingDownload> DownloadManager::reservePending(
 	for (const auto &[owner, data] : _sessions) {
 		for (const auto &job : data.pending) {
 			if (SameDestination(job.file.destination, clean)
-				|| (owner == session && job.document == document->id)) {
+				|| (owner == session && (job.document == document->id
+					|| SourceId(job) == origin))) {
 				Storage::TracePendingDownload(job.file.id, "duplicate job refused");
 				return std::nullopt;
 			}
@@ -601,8 +633,7 @@ void DownloadManager::resolvePending() {
 							channelId ? session->data().channel(channelId).get() : nullptr,
 							*result);
 						const auto item = session->data().message(origin);
-						const auto media = item ? item->media() : nullptr;
-						const auto document = media ? media->document() : nullptr;
+						const auto document = PendingSourceDocument(item, job);
 						if (!document || document->id != job.document || document->size != job.file.size
 							|| !document->persistentSourceAllowed(origin)) {
 							unavailable = true;
@@ -782,8 +813,7 @@ void DownloadManager::completePending(not_null<Main::Session*> session, const QU
 		});
 		auto &done = data.downloaded.back();
 		const auto item = session->data().message(done.itemId);
-		const auto media = item ? item->media() : nullptr;
-		const auto document = media ? media->document() : nullptr;
+		const auto document = PendingSourceDocument(item, job);
 		if (document && document->id == job.document && document->size == job.file.size
 			&& document->persistentSourceAllowed(done.itemId)) {
 			const auto location = Core::FileLocation(done.path);

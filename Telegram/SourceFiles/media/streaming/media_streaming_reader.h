@@ -9,9 +9,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "media/streaming/media_streaming_common.h"
 #include "media/streaming/media_streaming_loader.h"
+#include "media/streaming/media_streaming_download_attachment.h"
 #include "base/bytes.h"
 #include "base/weak_ptr.h"
 #include "base/thread_safe_wrap.h"
+
+#include <QtCore/QUuid>
 
 namespace Storage {
 class StreamedFileDownloader;
@@ -33,6 +36,12 @@ enum class Error;
 
 class Reader final : public base::has_weak_ptr {
 public:
+	using Attachment = DownloadAttachment::Id;
+	struct DownloadPart {
+		Attachment attachment = 0;
+		LoadedPart part;
+	};
+
 	enum class FillState : uchar {
 		Success,
 		WaitingCache,
@@ -46,6 +55,7 @@ public:
 		Storage::Cache::Database *cache = nullptr);
 
 	void setLoaderPriority(int priority);
+	[[nodiscard]] bool matchesDocument(uint64 document, int64 size) const;
 
 	// Any thread.
 	[[nodiscard]] int64 size() const;
@@ -71,13 +81,14 @@ public:
 	// Main thread.
 	void startStreaming();
 	void stopStreaming(bool stillActive = false);
-	[[nodiscard]] rpl::producer<LoadedPart> partsForDownloader() const;
-	void loadForDownloader(
+	[[nodiscard]] rpl::producer<DownloadPart> partsForDownloader() const;
+	[[nodiscard]] Attachment attachDownloader(
 		not_null<Storage::StreamedFileDownloader*> downloader,
-		int64 offset);
-	void doneForDownloader(int64 offset);
-	void cancelForDownloader(
-		not_null<Storage::StreamedFileDownloader*> downloader);
+		const QUuid &job);
+	void loadForDownloader(Attachment attachment, int64 offset);
+	void doneForDownloader(Attachment attachment, int64 offset);
+	void cancelForDownloader(Attachment attachment);
+	void updateDownloadReference(const QByteArray &reference);
 	void continueDownloaderFromMainThread();
 	[[nodiscard]] rpl::producer<SpeedEstimate> speedEstimate() const;
 
@@ -106,6 +117,11 @@ private:
 	struct SerializedSlice {
 		int number = -1;
 		QByteArray data;
+	};
+	struct DownloadOffset {
+		Attachment attachment = 0;
+		uint32 offset = 0;
+		bool written = false;
 	};
 	struct FillResult {
 		static constexpr auto kReadFromCacheMax = 2;
@@ -181,7 +197,7 @@ private:
 		};
 
 		void applyHeaderCacheData();
-		[[nodiscard]] int maxSliceSize(int sliceNumber) const;
+		[[nodiscard]] int64 maxSliceSize(int sliceNumber) const;
 		[[nodiscard]] SerializedSlice serializeAndUnloadSlice(
 			int sliceNumber);
 		[[nodiscard]] SerializedSlice serializeAndUnloadUnused();
@@ -226,13 +242,15 @@ private:
 
 	void processDownloaderRequests();
 	void checkCacheResultsForDownloader();
-	void pruneDownloaderCache(uint32 minimalOffset);
-	void pruneDoneDownloaderRequests();
+	void pruneDownloaderCache();
 	void sendDownloaderRequests();
 	[[nodiscard]] bool downloaderWaitForCachedSlice(uint32 offset);
 	void enqueueDownloaderOffsets();
-	void checkForDownloaderChange(int checkItemsCount);
 	void checkForDownloaderReadyOffsets();
+	void deliverDownloadPart(Attachment attachment, LoadedPart part, const char *source);
+	void loadDownloadOffset(Attachment attachment, uint32 offset);
+	void cancelRemoteOffset(uint32 offset);
+	void traceNetworkOffset(uint32 offset, const char *consumer) const;
 
 	void refreshLoaderPriority();
 
@@ -240,6 +258,7 @@ private:
 		Storage::Cache::Key baseKey);
 
 	const std::unique_ptr<Loader> _loader;
+	const bool _remote;
 	Storage::Cache::Database * const _cache = nullptr;
 
 	// shared_ptr is used to be able to have weak_ptr.
@@ -260,20 +279,24 @@ private:
 	// In case only downloader is active, all work is done on main thread.
 
 	// Main thread.
-	Storage::StreamedFileDownloader *_attachedDownloader = nullptr;
-	rpl::event_stream<LoadedPart> _partsForDownloader;
+	DownloadAttachment _downloadAttachment;
+	rpl::event_stream<DownloadPart> _partsForDownloader;
+	PartRequestOwners _remoteRequests;
+	QUuid _downloadTraceId;
 	int _realPriority = 1;
 	bool _streamingActive = false;
 
 	// Streaming thread.
 	std::deque<uint32> _offsetsForDownloader;
+	Attachment _processingAttachment = 0;
 	base::flat_set<uint32> _downloaderOffsetsRequested;
 	base::flat_map<uint32, std::optional<PartsMap>> _downloaderReadCache;
 
 	// Communication from main thread to streaming thread.
 	// Streaming thread to main thread communicates using crl::on_main.
-	base::thread_safe_queue<uint32> _downloaderOffsetRequests;
-	base::thread_safe_queue<uint32> _downloaderOffsetAcks;
+	std::atomic<Attachment> _activeAttachment = 0;
+	std::atomic<uint64> _playbackGeneration = 0;
+	base::thread_safe_queue<DownloadOffset> _downloaderUpdates;
 
 	rpl::lifetime _lifetime;
 

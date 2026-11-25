@@ -7,12 +7,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
-#include "storage/file_download.h"
+#include "storage/persistent_file_loader.h"
 #include "storage/download_manager_mtproto.h"
-#include "storage/pending_downloads.h"
 
 class mtpFileLoader final
-	: public FileLoader
+	: public Storage::PersistentFileLoader
 	, private Storage::DownloadMtprotoTask {
 public:
 	mtpFileLoader(
@@ -55,32 +54,12 @@ public:
 
 	Data::FileOrigin fileOrigin() const override;
 	uint64 objId() const override;
-	int64 currentOffset() const override;
-	bool canCancel() override;
-
-	void enablePersistent(Storage::PendingDownload job);
-	[[nodiscard]] QUuid persistentId() const;
-	[[nodiscard]] bool persistentCanSuspend() const;
-	[[nodiscard]] bool persistentCanResume() const;
-	[[nodiscard]] bool isPersistent() const;
-	void suspendPersistent(bool manual = true, Fn<void()> done = nullptr);
-	void resumePersistent(const QByteArray &reference);
-	void stopPersistentForUnavailableSource();
-
 private:
-	struct Persistent;
-
-	bool checkForOpen() override;
-	void openPersistent(bool resume);
-	void persistentOpened(
-		Storage::PersistentFileSink::Result result,
-		QBitArray present,
-		int64 size);
-	void checkpointPersistent();
-	void failPersistent(Storage::PersistentFileSink::Result result);
-	void publishPersistent();
-	bool feedPersistentPart(int64 offset, const QByteArray &bytes);
-	void stopPersistentRequests();
+	const char *persistentBackend() const override;
+	void requestPersistentParts() override;
+	void detachPersistentTransport() override;
+	void persistentPartWritten(int64 offset) override;
+	void updatePersistentReference(const QByteArray &reference) override;
 
 	Storage::Cache::Key cacheKey() const override;
 	std::optional<MediaKey> fileLocationKey() const override;
@@ -94,7 +73,6 @@ private:
 	void cancelOnFail() override;
 	bool setWebFileSizeHook(int64 size) override;
 
-	std::unique_ptr<Persistent> _persistent;
 	bool _lastComplete = false;
 	int64 _nextRequestOffset = 0;
 

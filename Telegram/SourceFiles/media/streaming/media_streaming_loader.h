@@ -30,8 +30,11 @@ public:
 
 	[[nodiscard]] virtual Storage::Cache::Key baseCacheKey() const = 0;
 	[[nodiscard]] virtual int64 size() const = 0;
+	[[nodiscard]] virtual uint64 documentId() const { return 0; }
+	virtual void updateReference(const QByteArray &) {}
 
 	virtual void load(int64 offset) = 0;
+	virtual void loadForDownload(int64 offset) { load(offset); }
 	virtual void cancel(int64 offset) = 0;
 	virtual void resetPriorities() = 0;
 	virtual void setPriority(int priority) = 0;

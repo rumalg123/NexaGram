@@ -107,7 +107,10 @@ constexpr auto ByDocument = [](const auto &entry) {
 					}
 				}
 			} else {
-				return (media->document() == document);
+				const auto primary = media->document();
+				return primary && (primary == document || ranges::any_of(
+					primary->resolveQualities(object.item),
+					[=](const auto &variant) { return variant.get() == document; }));
 			}
 		}
 	}

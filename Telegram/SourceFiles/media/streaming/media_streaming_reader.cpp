@@ -10,7 +10,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/streaming/media_streaming_common.h"
 #include "media/streaming/media_streaming_loader.h"
 #include "storage/cache/storage_cache_database.h"
+#include "storage/pending_downloads.h"
 
+#include <QtCore/QDebug>
 #include <QtCore/QtEndian>
 
 namespace Media {
@@ -30,13 +32,14 @@ constexpr auto kPreloadPartsAhead = 8;
 constexpr auto kDownloaderRequestsLimit = 8;
 
 using PartsMap = base::flat_map<uint32, QByteArray>;
+using Consumer = PartRequestOwners::Consumer;
 
 struct ParsedCacheEntry {
 	PartsMap parts;
 	std::optional<PartsMap> included;
 };
 
-bool IsContiguousSerialization(int serializedSize, int maxSliceSize) {
+bool IsContiguousSerialization(int64 serializedSize, int64 maxSliceSize) {
 	return !(serializedSize % kPartSize) || (serializedSize == maxSliceSize);
 }
 
@@ -64,7 +67,7 @@ int SlicesCount(uint32 size) {
 	return result;
 }
 
-int MaxSliceSize(int sliceNumber, uint32 size) {
+int64 MaxSliceSize(int sliceNumber, uint32 size) {
 	return !sliceNumber
 		? size
 		: (sliceNumber == SlicesCount(size))
@@ -75,7 +78,7 @@ int MaxSliceSize(int sliceNumber, uint32 size) {
 bytes::const_span ParseComplexCachedMap(
 		PartsMap &result,
 		bytes::const_span data,
-		int maxSize) {
+		int64 maxSize) {
 	const auto takeInt = [&]() -> std::optional<uint32> {
 		if (data.size() < sizeof(uint32)) {
 			return std::nullopt;
@@ -101,14 +104,17 @@ bytes::const_span ParseComplexCachedMap(
 		return data;
 	}
 	for (auto i = 0; i != count; ++i) {
-		const auto offset = takeInt().value_or(0);
+		const auto offset = takeInt().value_or(uint32(-1));
 		const auto size = takeInt().value_or(0);
+		if (offset >= maxSize || offset % kPartSize
+			|| size != std::min(kPartSize, maxSize - offset)
+			|| result.contains(offset)) {
+			result.clear();
+			return {};
+		}
 		const auto bytes = takeBytes(size);
-		if (offset >= maxSize
-			|| !size
-			|| size > maxSize
-			|| offset + size > maxSize
-			|| bytes.size() != size) {
+		if (bytes.size() != size) {
+			result.clear();
 			return {};
 		}
 		result.try_emplace(
@@ -122,8 +128,8 @@ bytes::const_span ParseComplexCachedMap(
 bytes::const_span ParseCachedMap(
 		PartsMap &result,
 		bytes::const_span data,
-		int maxSize) {
-	const auto size = int(data.size());
+		int64 maxSize) {
+	const auto size = int64(data.size());
 	if (IsContiguousSerialization(size, maxSize)) {
 		if (size > maxSize) {
 			return {};
@@ -717,7 +723,7 @@ void Reader::Slices::markSliceUsed(int sliceIndex) {
 	}
 }
 
-int Reader::Slices::maxSliceSize(int sliceNumber) const {
+int64 Reader::Slices::maxSliceSize(int sliceNumber) const {
 	return MaxSliceSize(sliceNumber, _size);
 }
 
@@ -854,26 +860,30 @@ Reader::Reader(
 	std::unique_ptr<Loader> loader,
 	Storage::Cache::Database *cache)
 : _loader(std::move(loader))
+, _remote(_loader->baseCacheKey().valid())
 , _cache(cache)
 , _cacheHelper(cache ? InitCacheHelper(_loader->baseCacheKey()) : nullptr)
 , _slices(_loader->size(), _cacheHelper != nullptr) {
 	_loader->parts(
 	) | rpl::on_next([=](LoadedPart &&part) {
-		if (_attachedDownloader) {
-			const auto weak = base::make_weak(this);
-			_partsForDownloader.fire_copy(part);
-			if (!weak) {
-				// Reader can be destroyed synchronously, if this part
-				// finished the streamed file downloader owning it.
-				return;
+		const auto failed = (part.offset == LoadedPart::kFailedOffset);
+		const auto offset = failed ? 0 : uint32(part.offset);
+		const auto forPlayback = failed
+			? !_remoteRequests.empty(Consumer::Playback)
+			: _remoteRequests.remove(Consumer::Playback, offset);
+		const auto playback = _streamingActive && (forPlayback || !isRemoteLoader());
+		const auto download = _downloadAttachment.active();
+		if (!failed) {
+			_remoteRequests.remove(Consumer::Download, offset);
+		}
+		if (playback) {
+			_loadedParts.emplace(part);
+			if (const auto waiting = _waiting.exchange(nullptr)) {
+				waiting->release();
 			}
 		}
-		if (_streamingActive) {
-			_loadedParts.emplace(std::move(part));
-		}
-		if (const auto waiting = _waiting.load(std::memory_order_acquire)) {
-			_waiting.store(nullptr, std::memory_order_release);
-			waiting->release();
+		if (download && (!failed || !_remoteRequests.empty(Consumer::Download))) {
+			deliverDownloadPart(download, std::move(part), "network delivery");
 		}
 	}, _lifetime);
 
@@ -888,8 +898,7 @@ void Reader::startSleep(not_null<crl::semaphore*> wake) {
 }
 
 void Reader::wakeFromSleep() {
-	if (const auto sleeping = _sleeping.load(std::memory_order_acquire)) {
-		_sleeping.store(nullptr, std::memory_order_release);
+	if (const auto sleeping = _sleeping.exchange(nullptr)) {
 		sleeping->release();
 	}
 }
@@ -914,6 +923,9 @@ void Reader::tryRemoveLoaderAsync() {
 void Reader::startStreaming() {
 	_streamingActive = true;
 	refreshLoaderPriority();
+	if (!_downloadTraceId.isNull()) {
+		Storage::TracePendingDownload(_downloadTraceId, "stream playback started");
+	}
 }
 
 void Reader::stopStreaming(bool stillActive) {
@@ -927,163 +939,224 @@ void Reader::stopStreaming(bool stillActive) {
 	}
 	if (!stillActive) {
 		_streamingActive = false;
+		if (!_downloadTraceId.isNull()) {
+			Storage::TracePendingDownload(_downloadTraceId, "stream playback stopped");
+		}
+		++_playbackGeneration;
+		for (const auto offset : _remoteRequests.detach(Consumer::Playback)) {
+			cancelRemoteOffset(offset);
+		}
+		_loader->tryRemoveFromQueue();
 		refreshLoaderPriority();
 		_loadingOffsets.clear();
 		processDownloaderRequests();
 	}
 }
 
-rpl::producer<LoadedPart> Reader::partsForDownloader() const {
+rpl::producer<Reader::DownloadPart> Reader::partsForDownloader() const {
 	return _partsForDownloader.events();
 }
 
-void Reader::loadForDownloader(
+Reader::Attachment Reader::attachDownloader(
 		not_null<Storage::StreamedFileDownloader*> downloader,
-		int64 offset) {
-	Expects(offset >= 0 && offset <= std::numeric_limits<uint32>::max());
+		const QUuid &job) {
+	Expects(!_downloadAttachment.active());
+	const auto attachment = _downloadAttachment.attach();
+	_downloadTraceId = job;
+	_loader->attachDownloader(downloader);
+	_activeAttachment = attachment;
+	if (!job.isNull() && Storage::PendingDownloadsTrace()) {
+		qInfo() << "Persistent download" << job << "stream attach"
+			<< attachment << "playback" << _streamingActive;
+	}
+	return attachment;
+}
 
-	if (_attachedDownloader != downloader) {
-		if (_attachedDownloader) {
-			cancelForDownloader(_attachedDownloader);
+void Reader::loadForDownloader(Attachment attachment, int64 offset) {
+	Expects(offset >= 0 && offset < size());
+	Expects(offset <= std::numeric_limits<uint32>::max());
+	if (_downloadAttachment.request(attachment, uint32(offset))) {
+		_downloaderUpdates.emplace(DownloadOffset{ attachment, uint32(offset) });
+		if (!_downloadTraceId.isNull() && Storage::PendingDownloadsTrace()) {
+			qInfo() << "Persistent download" << _downloadTraceId
+				<< "stream download attachment" << attachment << "offset" << offset;
 		}
-		_attachedDownloader = downloader;
-		_loader->attachDownloader(downloader);
 	}
-	_downloaderOffsetRequests.emplace(uint32(offset));
-	// Will be processed in continueDownloaderFromMainThread()
-	// from StreamedFileDownloader::requestParts().
 }
 
-void Reader::doneForDownloader(int64 offset) {
-	Expects(offset >= 0 && offset <= std::numeric_limits<uint32>::max());
-
-	_downloaderOffsetAcks.emplace(offset);
-	// Will be processed in continueDownloaderFromMainThread()
-	// from StreamedFileDownloader::requestParts().
+void Reader::doneForDownloader(Attachment attachment, int64 offset) {
+	Expects(offset >= 0 && offset < size());
+	if (_downloadAttachment.matches(attachment)) {
+		_downloaderUpdates.emplace(DownloadOffset{ attachment, uint32(offset), true });
+	}
 }
 
-void Reader::cancelForDownloader(
-		not_null<Storage::StreamedFileDownloader*> downloader) {
-	if (_attachedDownloader == downloader) {
-		_downloaderOffsetRequests.take();
-		_attachedDownloader = nullptr;
-		_loader->clearAttachedDownloader();
+void Reader::cancelForDownloader(Attachment attachment) {
+	if (!_downloadAttachment.detach(attachment)) {
+		return;
 	}
+	_activeAttachment = 0;
+	_loader->clearAttachedDownloader();
+	_downloaderUpdates.take();
+	for (const auto offset : _remoteRequests.detach(Consumer::Download)) {
+		cancelRemoteOffset(offset);
+	}
+	_loader->tryRemoveFromQueue();
+	if (!_downloadTraceId.isNull() && Storage::PendingDownloadsTrace()) {
+		qInfo() << "Persistent download" << _downloadTraceId
+			<< "stream detach" << attachment;
+	}
+	continueDownloaderFromMainThread();
+}
+
+void Reader::updateDownloadReference(const QByteArray &reference) {
+	_loader->updateReference(reference);
+}
+
+void Reader::deliverDownloadPart(
+		Attachment attachment,
+		LoadedPart part,
+		const char *source) {
+	const auto failed = part.offset == LoadedPart::kFailedOffset;
+	if (failed
+		? !_downloadAttachment.matches(attachment)
+		: !_downloadAttachment.consume(attachment, uint32(part.offset))) {
+		if (!_downloadTraceId.isNull() && Storage::PendingDownloadsTrace()
+			&& !_downloadAttachment.matches(attachment)) {
+			qInfo() << "Persistent download" << _downloadTraceId
+				<< "stream stale delivery" << attachment << part.offset;
+		}
+		return;
+	}
+	if (!failed && _remoteRequests.release(Consumer::Download, uint32(part.offset))) {
+		cancelRemoteOffset(uint32(part.offset));
+	}
+	if (!_downloadTraceId.isNull() && Storage::PendingDownloadsTrace()) {
+		qInfo() << "Persistent download" << _downloadTraceId << source
+			<< "attachment" << attachment << "offset" << part.offset;
+	}
+	_partsForDownloader.fire({ attachment, std::move(part) });
+}
+
+void Reader::traceNetworkOffset(uint32 offset, const char *consumer) const {
+	if (!_downloadTraceId.isNull() && Storage::PendingDownloadsTrace()) {
+		qInfo() << "Persistent download" << _downloadTraceId
+			<< "stream network" << consumer << "attachment"
+			<< _downloadAttachment.active() << "offset" << offset;
+	}
+}
+
+void Reader::loadDownloadOffset(Attachment attachment, uint32 offset) {
+	if (_downloadAttachment.pending(attachment, offset)) {
+		_remoteRequests.add(Consumer::Download, offset);
+		const auto shared = _remoteRequests.contains(Consumer::Playback, offset);
+		traceNetworkOffset(offset, shared ? "shared" : "download");
+		if (!shared) {
+			if (_downloadTraceId.isNull()) {
+				_loader->load(offset);
+			} else {
+				_loader->loadForDownload(offset);
+			}
+		}
+	}
+}
+
+void Reader::cancelRemoteOffset(uint32 offset) {
+	crl::on_main(this, [=] {
+		if (!_remoteRequests.contains(Consumer::Playback, offset)
+			&& !_remoteRequests.contains(Consumer::Download, offset)) {
+			_loader->cancel(offset);
+		}
+	});
 }
 
 void Reader::enqueueDownloaderOffsets() {
-	auto offsets = _downloaderOffsetRequests.take();
-	if (!empty(offsets)) {
-		if (!empty(_offsetsForDownloader)) {
-			_offsetsForDownloader.insert(
-				end(_offsetsForDownloader),
-				std::make_move_iterator(begin(offsets)),
-				std::make_move_iterator(end(offsets)));
-			checkForDownloaderChange(offsets.size() + 1);
-		} else {
-			_offsetsForDownloader = std::move(offsets);
-			checkForDownloaderChange(offsets.size());
-		}
-	}
-}
-
-void Reader::checkForDownloaderChange(int checkItemsCount) {
-	Expects(checkItemsCount <= _offsetsForDownloader.size());
-
-	// If a requested offset is less-or-equal of some previously requested
-	// offset, it means that the downloader was changed, ignore old offsets.
-	const auto end = _offsetsForDownloader.end();
-	const auto changed = std::adjacent_find(
-		end - checkItemsCount,
-		end,
-		[](uint32 first, uint32 second) { return (second <= first); });
-	if (changed != end) {
-		_offsetsForDownloader.erase(
-			begin(_offsetsForDownloader),
-			changed + 1);
+	const auto updates = _downloaderUpdates.take();
+	const auto attachment = _activeAttachment.load();
+	if (_processingAttachment != attachment) {
+		_processingAttachment = attachment;
+		_offsetsForDownloader.clear();
+		_downloaderOffsetsRequested.clear();
 		_downloaderReadCache.clear();
-		_downloaderOffsetAcks.take();
+	}
+	for (const auto &update : updates) {
+		if (!attachment || update.attachment != attachment) {
+			continue;
+		}
+		if (update.written) {
+			_downloaderOffsetsRequested.remove(update.offset);
+			const auto i = ranges::find(_offsetsForDownloader, update.offset);
+			if (i != end(_offsetsForDownloader)) {
+				_offsetsForDownloader.erase(i);
+			}
+		} else {
+			_offsetsForDownloader.push_back(update.offset);
+		}
 	}
 }
 
 void Reader::checkForDownloaderReadyOffsets() {
-	// If a requested part is available right now we simply fire it on the
-	// main thread, until the first not-available-right-now offset is found.
-	const auto unavailableInBytes = [&](uint32 offset, QByteArray &&bytes) {
-		if (bytes.isEmpty()) {
+	const auto attachment = _processingAttachment;
+	const auto available = [&](uint32 offset, QByteArray bytes) {
+		auto part = LoadedPart{ int64(offset), std::move(bytes) };
+		if (!part.valid(size())) {
+			return false;
+		}
+		crl::on_main(this, [=, part = std::move(part)]() mutable {
+			deliverDownloadPart(attachment, std::move(part), "cache delivery");
+		});
+		return true;
+	};
+	const auto cached = [&](uint32 offset) {
+		if (available(offset, _slices.partForDownloader(offset))) {
 			return true;
 		}
-		crl::on_main(this, [=, bytes = std::move(bytes)]() mutable {
-			_partsForDownloader.fire({ int64(offset), std::move(bytes) });
-		});
-		return false;
-	};
-	const auto unavailableInCache = [&](uint32 offset) {
-		const auto index = (offset / kInSlice);
-		const auto sliceNumber = index + 1;
-		const auto i = _downloaderReadCache.find(sliceNumber);
+		const auto index = offset / kInSlice;
+		const auto i = _downloaderReadCache.find(index + 1);
 		if (i == end(_downloaderReadCache) || !i->second) {
-			return true;
+			return false;
 		}
 		const auto j = i->second->find(offset - index * kInSlice);
-		if (j == end(*i->second)) {
-			return true;
-		}
-		return unavailableInBytes(offset, std::move(j->second));
+		return j != end(*i->second) && available(offset, j->second);
 	};
-	const auto unavailable = [&](uint32 offset) {
-		return unavailableInBytes(offset, _slices.partForDownloader(offset))
-			&& unavailableInCache(offset);
-	};
-	_offsetsForDownloader.erase(
-		begin(_offsetsForDownloader),
-		ranges::find_if(_offsetsForDownloader, unavailable));
+	std::erase_if(_offsetsForDownloader, cached);
 }
 
 void Reader::processDownloaderRequests() {
-	processCacheResults();
 	enqueueDownloaderOffsets();
+	processCacheResults();
 	checkForDownloaderReadyOffsets();
-	pruneDoneDownloaderRequests();
-	if (!empty(_offsetsForDownloader)) {
-		pruneDownloaderCache(_offsetsForDownloader.front());
-		sendDownloaderRequests();
-	}
+	pruneDownloaderCache();
+	sendDownloaderRequests();
 }
 
-void Reader::pruneDownloaderCache(uint32 minimalOffset) {
-	const auto minimalSliceNumber = (minimalOffset / kInSlice) + 1;
-	const auto removeTill = ranges::lower_bound(
-		_downloaderReadCache,
-		minimalSliceNumber,
-		ranges::less(),
-		&base::flat_map<uint32, std::optional<PartsMap>>::value_type::first);
-	_downloaderReadCache.erase(_downloaderReadCache.begin(), removeTill);
-}
-
-void Reader::pruneDoneDownloaderRequests() {
-	for (const auto done : _downloaderOffsetAcks.take()) {
-		_downloaderOffsetsRequested.remove(done);
-		const auto i = ranges::find(_offsetsForDownloader, done);
-		if (i != end(_offsetsForDownloader)) {
-			_offsetsForDownloader.erase(i);
-		}
+void Reader::pruneDownloaderCache() {
+	for (auto i = begin(_downloaderReadCache); i != end(_downloaderReadCache);) {
+		const auto slice = i->first;
+		const auto needed = ranges::any_of(_offsetsForDownloader, [=](uint32 offset) {
+			return offset / kInSlice + 1 == slice;
+		});
+		i = needed ? std::next(i) : _downloaderReadCache.erase(i);
 	}
 }
 
 void Reader::sendDownloaderRequests() {
+	const auto attachment = _processingAttachment;
 	auto &&offsets = ranges::views::all(
 		_offsetsForDownloader
 	) | ranges::views::take(kDownloaderRequestsLimit);
 	for (const auto offset : offsets) {
 		if ((!_cacheHelper || !downloaderWaitForCachedSlice(offset))
 			&& _downloaderOffsetsRequested.emplace(offset).second) {
-			_loader->load(offset);
+			crl::on_main(this, [=] { loadDownloadOffset(attachment, offset); });
 		}
 	}
 }
 
 bool Reader::downloaderWaitForCachedSlice(uint32 offset) {
+	if (_streamingError) {
+		return false;
+	}
 	if (_slices.waitingForHeaderCache()) {
 		return true;
 	}
@@ -1112,6 +1185,9 @@ void Reader::checkCacheResultsForDownloader() {
 void Reader::continueDownloaderFromMainThread() {
 	if (_streamingActive) {
 		wakeFromSleep();
+		if (const auto waiting = _waiting.exchange(nullptr)) {
+			waiting->release();
+		}
 	} else {
 		processDownloaderRequests();
 	}
@@ -1133,8 +1209,12 @@ void Reader::refreshLoaderPriority() {
 	_loader->setPriority(_streamingActive ? _realPriority : 0);
 }
 
+bool Reader::matchesDocument(uint64 document, int64 size) const {
+	return document && _loader->documentId() == document && _loader->size() == size;
+}
+
 bool Reader::isRemoteLoader() const {
-	return _loader->baseCacheKey().valid();
+	return _remote;
 }
 
 std::shared_ptr<Reader::CacheHelper> Reader::InitCacheHelper(
@@ -1317,10 +1397,19 @@ Reader::FillState Reader::fillFromSlices(uint32 offset, bytes::span buffer) {
 void Reader::cancelLoadInRange(uint32 from, uint32 till) {
 	Expects(from < till);
 
-	for (const auto offset : _loadingOffsets.takeInRange(from, till)) {
-		if (!_downloaderOffsetsRequested.contains(offset)) {
+	const auto generation = _playbackGeneration.load();
+	for (const auto value : _loadingOffsets.takeInRange(from, till)) {
+		const auto offset = uint32(value);
+		if (!isRemoteLoader()) {
 			_loader->cancel(offset);
+			continue;
 		}
+		crl::on_main(this, [=] {
+			if (_playbackGeneration == generation
+				&& _remoteRequests.release(Consumer::Playback, offset)) {
+				_loader->cancel(offset);
+			}
+		});
 	}
 }
 
@@ -1391,13 +1480,29 @@ bool Reader::processLoadedParts() {
 bool Reader::checkForSomethingMoreReceived() {
 	const auto result1 = processCacheResults();
 	const auto result2 = processLoadedParts();
+	if (_activeAttachment || _processingAttachment) {
+		processDownloaderRequests();
+	}
 	return result1 || result2;
 }
 
 void Reader::loadAtOffset(uint32 offset) {
-	if (_loadingOffsets.add(offset)) {
-		_loader->load(offset);
+	if (!_loadingOffsets.add(offset)) {
+		return;
 	}
+	if (!isRemoteLoader()) {
+		_loader->load(offset);
+		return;
+	}
+	const auto generation = _playbackGeneration.load();
+	crl::on_main(this, [=] {
+		if (_streamingActive && _playbackGeneration == generation) {
+			_remoteRequests.add(Consumer::Playback, offset);
+			traceNetworkOffset(offset, _remoteRequests.contains(Consumer::Download, offset)
+				? "shared" : "playback");
+			_loader->load(offset);
+		}
+	});
 }
 
 void Reader::finalizeCache() {
@@ -1423,8 +1528,8 @@ QByteArray SerializeComplexPartsMap(
 	const auto count = parts.size();
 	const auto intSize = sizeof(int32);
 	result.reserve(count * kPartSize + 2 * intSize * (count + 1));
-	const auto appendInt = [&](int value) {
-		auto serialized = int32(value);
+	const auto appendInt = [&](uint32 value) {
+		auto serialized = value;
 		result.append(
 			reinterpret_cast<const char*>(&serialized),
 			intSize);

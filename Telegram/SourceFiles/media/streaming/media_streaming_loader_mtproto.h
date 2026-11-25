@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/timer.h"
 #include "media/streaming/media_streaming_loader.h"
+#include "media/streaming/media_streaming_download_attachment.h"
 #include "mtproto/sender.h"
 #include "data/data_file_origin.h"
 #include "storage/download_manager_mtproto.h"
@@ -26,8 +27,11 @@ public:
 
 	[[nodiscard]] Storage::Cache::Key baseCacheKey() const override;
 	[[nodiscard]] int64 size() const override;
+	[[nodiscard]] uint64 documentId() const override;
+	void updateReference(const QByteArray &reference) override;
 
 	void load(int64 offset) override;
+	void loadForDownload(int64 offset) override;
 	void cancel(int64 offset) override;
 	void resetPriorities() override;
 	void setPriority(int priority) override;
@@ -66,6 +70,8 @@ private:
 	MTP::Sender _api;
 
 	PriorityQueue _requested;
+	PriorityQueue _downloadRequested;
+	SharedRequestOrder _requestOrder;
 	rpl::event_stream<LoadedPart> _parts;
 	rpl::event_stream<SpeedEstimate> _speedEstimate;
 

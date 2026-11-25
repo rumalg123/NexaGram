@@ -17,6 +17,7 @@ using namespace Media::Streaming;
 
 constexpr auto kPartSize = Loader::kPartSize;
 constexpr auto kRequestPartsCount = 32;
+static_assert(kPartSize == kPersistentDownloadPartSize);
 
 } // namespace
 
@@ -38,7 +39,7 @@ StreamedFileDownloader::StreamedFileDownloader(
 	LoadFromCloudSetting fromCloud,
 	bool autoLoading,
 	uint8 cacheTag)
-: FileLoader(
+: PersistentFileLoader(
 	session,
 	toFile,
 	size,
@@ -57,21 +58,68 @@ StreamedFileDownloader::StreamedFileDownloader(
 	_partIsSaved.resize(_partsCount, false);
 
 	_reader->partsForDownloader(
-	) | rpl::on_next([=](const LoadedPart &part) {
-		if (part.offset == LoadedPart::kFailedOffset) {
+	) | rpl::on_next([=](const Reader::DownloadPart &delivery) {
+		if (delivery.attachment != _attachment) {
+			return;
+		}
+		const auto &part = delivery.part;
+		if (isPersistent()) {
+			if (!part.valid(_fullSize)) {
+				failPersistent(PersistentFileSink::Result::TransferFailed);
+			} else {
+				feedPersistentPart(part.offset, part.bytes);
+			}
+		} else if (!part.valid(_fullSize)) {
 			cancel(FailureReason::OtherFailure);
 		} else {
-			savePart(std::move(part));
+			savePart(part);
 		}
 	}, _lifetime);
 }
 
 StreamedFileDownloader::~StreamedFileDownloader() {
-	if (!_finished) {
+	if (!preservePersistentOnDestruction() && !_finished) {
 		cancel();
 	} else {
-		_reader->cancelForDownloader(this);
+		detachReader();
 	}
+}
+
+const char *StreamedFileDownloader::persistentBackend() const {
+	return "backend streaming";
+}
+
+void StreamedFileDownloader::attachReader() {
+	if (!_attachment) {
+		_attachment = _reader->attachDownloader(this, persistentId());
+	}
+}
+
+void StreamedFileDownloader::detachReader() {
+	if (const auto attachment = std::exchange(_attachment, 0)) {
+		_reader->cancelForDownloader(attachment);
+	}
+}
+
+void StreamedFileDownloader::requestPersistentParts() {
+	attachReader();
+	while (persistentCanRequest(kRequestPartsCount)) {
+		_reader->loadForDownloader(_attachment, takePersistentOffset());
+	}
+	_reader->continueDownloaderFromMainThread();
+}
+
+void StreamedFileDownloader::detachPersistentTransport() {
+	detachReader();
+}
+
+void StreamedFileDownloader::persistentPartWritten(int64 offset) {
+	_reader->doneForDownloader(_attachment, offset);
+	requestPersistentParts();
+}
+
+void StreamedFileDownloader::updatePersistentReference(const QByteArray &reference) {
+	_reader->updateDownloadReference(reference);
 }
 
 uint64 StreamedFileDownloader::objId() const {
@@ -83,6 +131,7 @@ Data::FileOrigin StreamedFileDownloader::fileOrigin() const {
 }
 
 void StreamedFileDownloader::requestParts() {
+	attachReader();
 	while (!_finished
 		&& _nextPartIndex < _partsCount
 		&& _partsRequested < kRequestPartsCount) {
@@ -104,7 +153,7 @@ void StreamedFileDownloader::requestPart() {
 		return;
 	}
 	_nextPartIndex = index + 1;
-	_reader->loadForDownloader(this, index * kPartSize);
+	_reader->loadForDownloader(_attachment, index * kPartSize);
 	++_partsRequested;
 }
 
@@ -113,7 +162,7 @@ QByteArray StreamedFileDownloader::readLoadedPart(int64 offset) {
 	Expects(!(offset % kPartSize));
 
 	const auto index = (offset / kPartSize);
-	return _partIsSaved[index]
+	return !isPersistent() && _partIsSaved[index]
 		? readLoadedPartBack(offset, kPartSize)
 		: QByteArray();
 }
@@ -127,14 +176,19 @@ std::optional<MediaKey> StreamedFileDownloader::fileLocationKey() const {
 }
 
 void StreamedFileDownloader::cancelHook() {
+	if (cancelPersistent()) {
+		return;
+	}
 	_partsRequested = 0;
 	_nextPartIndex = 0;
 
-	_reader->cancelForDownloader(this);
+	detachReader();
 }
 
 void StreamedFileDownloader::startLoading() {
-	requestParts();
+	if (!startPersistent()) {
+		requestParts();
+	}
 }
 
 void StreamedFileDownloader::savePart(const LoadedPart &part) {
@@ -160,8 +214,9 @@ void StreamedFileDownloader::savePart(const LoadedPart &part) {
 	if (!writeResultPart(offset, bytes::make_span(part.bytes))) {
 		return;
 	}
-	_reader->doneForDownloader(offset);
+	_reader->doneForDownloader(_attachment, offset);
 	if (_partsSaved == _partsCount) {
+		detachReader();
 		finalizeResult();
 	} else {
 		requestParts();
