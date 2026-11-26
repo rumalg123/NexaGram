@@ -1,66 +1,40 @@
-## Features
+![NexaGram](docs/assets/nexagram-horizontal-color.svg)
 
-*(Some features were taken from [Kotatogram](https://github.com/kotatogram/kotatogram-desktop))*
+# Features
 
-1. Show Chat ID
-2. Show admin titles in member list
-3. Upload/Download Boost Setting
-4. Show chat restriction reason on profile page
-5. Ban members option in Recent Actions
-6. Always show discuss button if channel has discussion group
-7. Copy inline button callback data to Clipboard
-8. Expose all chat permissions setting
-9. Show bot privacy in member list and profile
-10. Show admin title in admin list
-11. Search Messages From User(Right click user pic or member list)
-12. Repeat user message to current group
-13. Recent Actions/Admins list button in top bar
-14. Show service message time
-15. Show message ID in tooltip/message box
-16. ~~Gif Shared Media section~~
-17. Don't share my phone number when add someone to contacts
-18. Multiple accounts up to __10__
-19. Support multiple chat forward
-20. Support Forward Message without quote
-21. Quick Forward to Saved Messages
-22. [Restore] Convert to Supergroup feature
-23. [Restore] upgraded to supergroup service message
-24. Create new supergroup
-25. [Restore] Discussion group button
-26. [Mention user via Create Link with tg://user?id=123456](https://t.me/tg_x64/156)
-27. User Bio clickable
-28. `tg://openmessage` and `tg://user` clickable
-29. Show user total sent messages when you're deleting a message
-30. Shortcut for Fast Forward/Copy messages (ALT+F/ALT+C)
-31. Always delete message option(Group/Person/Both)
-32. Show Phone Number option
-33. View Channel Button in Group Info widget
-34. Show online member count if supergroup member >= 200 and more accurate
-35. Disable Cloud Draft Sync To Local
-36. Always Show Scheduled Button option
-37. Mark All Chats As Read for "All Chats" Folder
-38. [Voice Chat Radio mode](https://t.me/tg_x64/238)
-39. [Auto unmute option](https://t.me/tg_x64/266)
-40. Voice chat bitrate option
-41. Show/Hide/View pinned message
-42. ~~Pin to top (Windows only)~~
-43. Allow pin older message with notify
-44. Remove all proxies
-45. Hide "All chats" folder option
-46. Hide 1 to 1 call panel window when press X(close window)
-47. Allow pin Voice Chat window to top
-48. Allow open link without warning
-49. [Hide messages from blocked user](https://t.me/tg_x64/519)
-50. Disable Premium Animation
-51. Message time with seconds
-52. Ban button for Join Requests
-53. Hide stories
-54. "Uncolored Quote" option
-55. Show sender's avatar in groups
-56. Disable global search
-57. Recent sticker display limit
-58. Add quick forward when pressed ctrl
-59. Screenshot privacy mode
-60. Support to drag and drop in the filter menu
-61. Support sending and viewing location
-62. Sticker pack owner info
+## Downloads
+
+- Pause, resume, retry, or cancel eligible Telegram file saves. Downloads can recover verified progress after a restart or interruption.
+- Direct MTProto files and streaming-backed videos and audio use the same Downloads panel. Playback can continue while a file download is paused or cancelled.
+- Pause All, Resume All, and actions on a selection work within the current account. Search by filename or filter by status. The panel shows progress, speed, and estimated time when available.
+- Configure persistence, automatic startup resume, individual cancel confirmation, and the pending indicator in Advanced. [Read the download guide](docs/resumable-downloads.md).
+
+## Message selection and forwarding
+
+- Use smart selection and regex filters to select messages by filename or file type.
+- Forward as a copy without attribution, forward to multiple chats, or send to Saved Messages. Choose to keep the selection after forwarding.
+- Use **Alt+F** or **Alt+C** for quick forwarding and copying. Ctrl-click enables the quick-forward shortcut in supported menus.
+- Show message IDs, service message times, and timestamps with seconds. Search messages from a member or repeat a message in the current group.
+
+## Chat list and profiles
+
+- Filter deleted accounts and unavailable or restricted chats. Use the chat status toolbar, badges, and counts to see which chats match.
+- Hide stories, messages from blocked users, or the All Chats folder. Mark all chats as read, disable global search, or rearrange filters by dragging them.
+- View chat IDs, restriction reasons, admin titles, bot privacy status, and online counts. Jump to a linked discussion or channel from group information.
+- Choose whether to share your phone number when adding a contact. Open supported user, chat, and message links from profiles and messages.
+
+## Group administration and messaging
+
+- Open Recent Actions and administrator lists from the chat header. Ban from Recent Actions or Join Requests and access additional chat permission controls.
+- Create or convert to a supergroup, see migration messages, and open linked discussions.
+- See a sender's message count when deleting a message. Customize deletion defaults, the scheduled-message button, cloud drafts, and pinned-message behavior.
+
+## Media, calls, and preferences
+
+- Adjust native upload and download boost settings within Telegram's transport limits.
+- Configure voice chat bitrate, radio mode, auto-unmute, and always-on-top voice chat. Choose whether closing the one-to-one call window hides the panel.
+- Show member avatars in groups, configure the recent sticker limit, and view sticker pack owner information. The fork also carries sticker, reaction, and message context-menu improvements.
+- Send and view locations, use screenshot privacy mode, show uncolored quotes, disable Premium animations, manage saved proxies, and optionally skip link warnings.
+- Use up to ten accounts where supported by the client and account configuration.
+
+NexaGram includes inherited features from [64Gram](https://github.com/TDesktop-x64/tdesktop) and [Kotatogram](https://github.com/kotatogram/kotatogram-desktop).

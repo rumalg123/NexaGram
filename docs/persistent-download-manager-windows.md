@@ -1,18 +1,18 @@
 # Downloads management testing on Windows
 
-Use an isolated 64Gram profile and non-sensitive fixtures. The first tests require only small downloads. Keep the profile and all test destinations separate from your normal client.
+Use an isolated NexaGram profile and non-sensitive fixtures. The first tests require only small downloads. Keep the profile and all test destinations separate from your normal client.
 
 ## Build and run the standalone tests
 
 Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio. Select **Debug | x64**, then build the **Telegram** project. Build **test_persistent_file_sink** separately in the **(tests)** group. The existing solution can regenerate its source and language registrations through its normal build dependencies. Keep the configured output and dependencies. From an x64 Developer PowerShell, the equivalent command is shown below.
 
-- The client is `D:\TBuild\tdesktop\out\Debug\64Gram.exe`.
+- The client is `D:\TBuild\tdesktop\out\Debug\NexaGram.exe`.
 - The test executable is `D:\TBuild\tdesktop\out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe`.
 
 ```powershell
 $root = 'D:\TBuild\tdesktop'
 cmake --build (Join-Path $root 'out') --config Debug --target Telegram test_persistent_file_sink
-$exe = Join-Path $root 'out\Debug\64Gram.exe'
+$exe = Join-Path $root 'out\Debug\NexaGram.exe'
 $tests = Join-Path $root 'out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe'
 $result = Start-Process -FilePath $tests -Wait -PassThru -WindowStyle Hidden
 $result.ExitCode
@@ -24,7 +24,7 @@ Expect exit code `0`. The standalone fixtures exercise action eligibility, stale
 ## Launch an isolated client
 
 ```powershell
-$lab = Join-Path $env:LOCALAPPDATA '64Gram-Download-Manager-Test'
+$lab = Join-Path $env:LOCALAPPDATA 'NexaGram-Download-Manager-Test'
 $profile = Join-Path $lab 'profile'
 $originals = Join-Path $lab 'originals'
 $dest = Join-Path $lab 'downloads'

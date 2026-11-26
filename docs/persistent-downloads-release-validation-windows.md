@@ -12,16 +12,16 @@ $out = Join-Path $repo 'out'
 Select-String 'DESKTOP_APP_ENABLE_LTO:.*=OFF' "$out\CMakeCache.txt"
 cmake --build $out --config Debug --target Telegram test_persistent_file_sink
 cmake --build $out --config Release --target Telegram test_persistent_file_sink
-$debugExe = "$out\Debug\64Gram.exe"
-$releaseExe = "$out\Release\64Gram.exe"
-$lab = Join-Path $env:LOCALAPPDATA '64Gram-M6-Validation'
+$debugExe = "$out\Debug\NexaGram.exe"
+$releaseExe = "$out\Release\NexaGram.exe"
+$lab = Join-Path $env:LOCALAPPDATA 'NexaGram-M6-Validation'
 $profile = Join-Path $lab 'profile'
 $dest = Join-Path $lab 'downloads'
 $originals = Join-Path $lab 'originals'
 New-Item -ItemType Directory -Force -Path $profile,$dest,$originals | Out-Null
 $flags = 'TDESKTOP_EXPERIMENTAL_RESUMABLE_DOWNLOADS','TDESKTOP_EXPERIMENTAL_RESUME_ON_STARTUP','TDESKTOP_PERSISTENT_DOWNLOAD_TRACE','TDESKTOP_PERSISTENT_DOWNLOAD_PERF'
 foreach ($flag in $flags) { Remove-Item "Env:$flag" -ErrorAction SilentlyContinue }
-$link = (New-Object -ComObject WScript.Shell).CreateShortcut("$lab\64Gram validation.lnk")
+$link = (New-Object -ComObject WScript.Shell).CreateShortcut("$lab\NexaGram validation.lnk")
 $link.TargetPath = $debugExe
 $link.WorkingDirectory = Split-Path $debugExe
 $link.Arguments = '-many -workdir "' + $profile + '"'
@@ -141,6 +141,13 @@ Prepare the portable beta from a clean checkout or detached worktree of the fina
 2. Open M6. Restore the two old jobs, create a new one, quit, and restart. Test the mixed registry, manual pause, completion deduplication and unrelated settings. A v1 sidecar without an account registry entry has no automatic discovery. Old unkeyed data requires a trusted destination.
 3. For downgrade testing use a disposable backup. A registry containing new keyed jobs and their v2 sidecars cannot be managed by M5. Return to the compatible client using the intact profile and staging files. Avoid concurrent writers or testing on production account data.
 4. Repeat Stage A in Release using a normal shortcut. Where an already authorized test installer or update is available, test installed/portable launch, updater restart, Windows startup and tray/minimized launch in an isolated VM. Expect the same account identity, settings, intent, hashes and history. Check expected NTFS zone information when Group Policy enables marking with `Get-Content -LiteralPath "$dest\fixture.zip" -Stream Zone.Identifier`.
-5. Record results in the [release checklist](persistent-downloads-release-checklist.md). Signing, packaging and distribution are separate, pending actions.
+5. Record per-scenario results, source commit, updater channel, and the tested artifact hash. Signing, packaging, and distribution are separate release steps.
 
 If a test fails, retain the job UUID, trace excerpt, hashes, profile and corresponding partial files together. Quit only the isolated client. Cancel recognized test jobs through Downloads. Inspect ambiguous artifacts individually before removing disposable fixtures; release test links separately from their targets. Keep the production profile, originals and build outputs intact.
+
+### NexaGram packaging smoke test
+
+- Verify the clean Windows ZIP contains the NexaGram EXE, Updater, widget runtime, and NexaGram portable marker. Check that About shows NexaGram, Telegram Desktop, and 64Gram versions in that order.
+- Run NexaGram alongside existing Telegram Desktop and 64Gram installs. Check their profile directories, tray icons, startup entries, and shortcuts independently. Windows protocol defaults for Telegram links are shared OS choices.
+- Verify the public prerelease and exact source tag. On disposable profiles, prove beta opt-in and opt-out with a signed package whose numeric version is greater than the installed one. Retest the Windows runtime after applying the package.
+- Before publication, review the [engineering audit](persistent-downloads-engineering-audit.md) and [signed feed guide](../Telegram/build/updates.md). Record SHA-256 for the delivered assets and retain bootstrap trust and release notes.

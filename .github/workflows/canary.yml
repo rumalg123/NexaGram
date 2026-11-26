@@ -573,7 +573,7 @@ jobs:
           path: ${{ env.LibrariesPath }}
           key: ${{ steps.cache-libs.outputs.cache-primary-key }}
 
-      - name: Telegram Desktop build.
+      - name: NexaGram build.
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
 
@@ -600,7 +600,7 @@ jobs:
           cd $TBUILD/$REPO_NAME/out/Release
           DUMP=$TBUILD/Libraries/win64/breakpad/src/tools/windows/dump_syms/Release/dump_syms.exe
           mkdir -p symbols
-          for MODULE in 64Gram Updater; do
+          for MODULE in NexaGram Updater; do
             "$DUMP" $MODULE.pdb > $MODULE.sym
             DEBUG_ID=$(head -n 1 $MODULE.sym | awk '{ print $4 }')
             mkdir -p symbols/$MODULE.pdb/$DEBUG_ID
@@ -635,14 +635,14 @@ jobs:
           # the account exists. The signing itself is:
           echo "$SM_CLIENT_CERT_FILE_B64" | base64 -d > /tmp/keylocker.p12
           export SM_CLIENT_CERT_FILE=/tmp/keylocker.p12
-          smctl sign --keypair-alias "$SM_KEYPAIR_ALIAS" --input 64Gram.exe
+          smctl sign --keypair-alias "$SM_KEYPAIR_ALIAS" --input NexaGram.exe
           smctl sign --keypair-alias "$SM_KEYPAIR_ALIAS" --input Updater.exe
           smctl sign --keypair-alias "$SM_KEYPAIR_ALIAS" --input modules/x64/TelegramWidgetHelper.exe
           # Every binary is verified here, on the exact bytes that get
           # packed: Updater.exe travels only inside the update envelope,
-          # the publish job can re-check just the portable's 64Gram.exe.
+          # the publish job can re-check just the portable's NexaGram.exe.
           # Per command: smctl needs Git Bash to convert SM_CLIENT_CERT_FILE.
-          MSYS_NO_PATHCONV=1 signtool verify /pa /all 64Gram.exe
+          MSYS_NO_PATHCONV=1 signtool verify /pa /all NexaGram.exe
           MSYS_NO_PATHCONV=1 signtool verify /pa /all Updater.exe
           MSYS_NO_PATHCONV=1 signtool verify /pa /all modules/x64/TelegramWidgetHelper.exe
           echo "signed=true" >> $GITHUB_OUTPUT
@@ -664,7 +664,7 @@ jobs:
           # the release copy is a pinned known-good build for Windows 7,
           # while CI would grab whatever the runner's SDK ships. Canary
           # machines use the system compiler dll.
-          ./Packer.exe -path 64Gram.exe -path Updater.exe \
+          ./Packer.exe -path NexaGram.exe -path Updater.exe \
             -path modules/x64/TelegramWidgetHelper.exe \
             -target win64 \
             -version $BASE \
@@ -690,15 +690,15 @@ jobs:
           fi
 
           # The first-install artifact is a portable-style archive (like
-          # the alpha builds): the TelegramForcePortable folder keeps the
+          # the alpha builds): the NexaGramForcePortable folder keeps the
           # canary's tdata next to the binary, never touching a normal
           # installation. The .keep file stops unpackers that skip empty
           # folders from dropping it.
           PORTABLE=td-portable-win-x64-$CANARY_VERSION$CANARY_SUFFIX.zip
           rm -rf portable
-          mkdir -p portable/$CANARY_FOLDER/TelegramForcePortable portable/$CANARY_FOLDER/modules/x64
-          touch portable/$CANARY_FOLDER/TelegramForcePortable/.keep
-          cp 64Gram.exe portable/$CANARY_FOLDER/
+          mkdir -p portable/$CANARY_FOLDER/NexaGramForcePortable portable/$CANARY_FOLDER/modules/x64
+          touch portable/$CANARY_FOLDER/NexaGramForcePortable/.keep
+          cp NexaGram.exe portable/$CANARY_FOLDER/
           cp modules/x64/TelegramWidgetHelper.exe portable/$CANARY_FOLDER/modules/x64/
           (cd portable && 7z a -mx9 ../$PORTABLE $CANARY_FOLDER/)
 
@@ -860,7 +860,7 @@ jobs:
             ThirdParty
           key: ${{ steps.cache-libs.outputs.cache-primary-key }}
 
-      - name: Telegram Desktop build.
+      - name: NexaGram build.
         run: |
           cd $REPO_NAME/Telegram
 
@@ -897,10 +897,10 @@ jobs:
           cd $REPO_NAME/out/Release
           DUMP=../../../Libraries/breakpad/src/tools/mac/dump_syms/build/Release/dump_syms
           mkdir -p symbols
-          for MODULE in 64Gram Updater; do
-            BINARY=64Gram.app/Contents/MacOS/64Gram
+          for MODULE in NexaGram Updater; do
+            BINARY=NexaGram.app/Contents/MacOS/NexaGram
             if [ "$MODULE" = "Updater" ]; then
-              BINARY=64Gram.app/Contents/Frameworks/Updater
+              BINARY=NexaGram.app/Contents/Frameworks/Updater
             fi
             "$DUMP" -a ${{ matrix.arch }} "$BINARY" > $MODULE.sym 2>/dev/null
             DEBUG_ID=$(head -n 1 $MODULE.sym | awk '{ print $4 }')
@@ -912,7 +912,7 @@ jobs:
       - name: Pack the half for transport.
         run: |
           cd $REPO_NAME/out/Release
-          for ENTRY in 64Gram.app Packer; do
+          for ENTRY in NexaGram.app Packer; do
             if [ ! -e "$ENTRY" ]; then
               echo "::error::$ENTRY not found after the build."
               exit 1
@@ -920,15 +920,15 @@ jobs:
           done
 
           # Stripped here: the universal app is lipo'd from these.
-          for BINARY in MacOS/64Gram Frameworks/Updater Helpers/crashpad_handler Helpers/TelegramWidgetHelper; do
-            strip 64Gram.app/Contents/$BINARY
+          for BINARY in MacOS/NexaGram Frameworks/Updater Helpers/crashpad_handler Helpers/TelegramWidgetHelper; do
+            strip NexaGram.app/Contents/$BINARY
           done
 
           # A tar, because upload-artifact resolves symlinks and drops
           # the executable bit, and an .app bundle survives neither.
           mkdir -p transport
           cp ../../../MACOS_TOOLCHAIN.txt macos-toolchain.txt
-          tar -cf transport/mac-${{ matrix.arch }}.tar 64Gram.app Packer macos-toolchain.txt
+          tar -cf transport/mac-${{ matrix.arch }}.tar NexaGram.app Packer macos-toolchain.txt
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         name: Upload the half.
@@ -1001,10 +1001,10 @@ jobs:
           # universal app installs, the thin ones become the updates.
           cd $REPO_NAME/out/Release
           for ARCH in x86_64 arm64; do
-            rm -rf unpack.$ARCH 64Gram.$ARCH.app
+            rm -rf unpack.$ARCH NexaGram.$ARCH.app
             mkdir unpack.$ARCH
             tar -xf transport/mac-$ARCH.tar -C unpack.$ARCH
-            mv unpack.$ARCH/64Gram.app 64Gram.$ARCH.app
+            mv unpack.$ARCH/NexaGram.app NexaGram.$ARCH.app
           done
           if ! cmp -s unpack.arm64/macos-toolchain.txt unpack.x86_64/macos-toolchain.txt; then
             echo "::error::The architecture builds used different Xcode/SDK versions or deployment targets."
@@ -1018,17 +1018,17 @@ jobs:
 
           # Use the arm64 bundle as the template and include Intel-only
           # Swift runtimes below for older macOS versions.
-          BINARIES="MacOS/64Gram Frameworks/Updater Helpers/crashpad_handler Helpers/TelegramWidgetHelper"
-          rm -rf 64Gram.app
-          cp -R 64Gram.arm64.app 64Gram.app
+          BINARIES="MacOS/NexaGram Frameworks/Updater Helpers/crashpad_handler Helpers/TelegramWidgetHelper"
+          rm -rf NexaGram.app
+          cp -R NexaGram.arm64.app NexaGram.app
           for BINARY in $BINARIES; do
-            lipo -create 64Gram.arm64.app/Contents/$BINARY \
-              64Gram.x86_64.app/Contents/$BINARY \
-              -output 64Gram.app/Contents/$BINARY
+            lipo -create NexaGram.arm64.app/Contents/$BINARY \
+              NexaGram.x86_64.app/Contents/$BINARY \
+              -output NexaGram.app/Contents/$BINARY
           done
-          for FILE in 64Gram.x86_64.app/Contents/Frameworks/libswift*.dylib; do
+          for FILE in NexaGram.x86_64.app/Contents/Frameworks/libswift*.dylib; do
             [ -f "$FILE" ] || continue
-            DESTINATION="64Gram.app/Contents/Frameworks/${FILE##*/}"
+            DESTINATION="NexaGram.app/Contents/Frameworks/${FILE##*/}"
             if [ -f "$DESTINATION" ]; then
               if ! cmp -s "$FILE" "$DESTINATION"; then
                 echo "::error::Swift runtime differs between architecture builds: ${FILE##*/}"
@@ -1050,7 +1050,7 @@ jobs:
                 exit 1
                 ;;
             esac
-          done < <(find 64Gram.app -type f -perm +111 -print0)
+          done < <(find NexaGram.app -type f -perm +111 -print0)
 
       - name: Sign and notarize.
         id: sign
@@ -1070,7 +1070,7 @@ jobs:
               echo "::error::Publishing requires the signing certificate, unsigned apps never ship."
               exit 1
             fi
-            for BUNDLE in 64Gram.x86_64.app 64Gram.arm64.app 64Gram.app; do
+            for BUNDLE in NexaGram.x86_64.app NexaGram.arm64.app NexaGram.app; do
               python3 ../../Telegram/build/sign_mac.py --check "$BUNDLE"
             done
             echo "::warning::No signing certificate, leaving the apps unsigned."
@@ -1086,7 +1086,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
-          for BUNDLE in 64Gram.x86_64.app 64Gram.arm64.app 64Gram.app; do
+          for BUNDLE in NexaGram.x86_64.app NexaGram.arm64.app NexaGram.app; do
             python3 ../../Telegram/build/sign_mac.py --timestamp --runtime \
               --identity "$SIGN_IDENTITY" \
               --entitlements ../../Telegram/Telegram/Telegram.entitlements \
@@ -1124,10 +1124,10 @@ jobs:
             # so the file paths inside the update match the install.
             rm -rf update_pack
             mkdir update_pack
-            cp -R 64Gram.$ARCH.app update_pack/64Gram.app
+            cp -R NexaGram.$ARCH.app update_pack/NexaGram.app
             cp Packer update_pack/
             cd update_pack
-            ./Packer -path 64Gram.app \
+            ./Packer -path NexaGram.app \
               -arch $ARCH \
               -version $BASE \
               -channel canary-${{ needs.version.outputs.channel }} \
@@ -1157,12 +1157,12 @@ jobs:
           # Portable-style first-install archive from the stapled
           # universal app, with tdata forced next to the bundle. The
           # .keep file stops unpackers that skip empty folders from
-          # dropping TelegramForcePortable.
+          # dropping NexaGramForcePortable.
           PORTABLE=td-portable-mac-$CANARY_VERSION$CANARY_SUFFIX.zip
           rm -rf portable
-          mkdir -p portable/$CANARY_FOLDER/TelegramForcePortable
-          touch portable/$CANARY_FOLDER/TelegramForcePortable/.keep
-          cp -R 64Gram.app portable/$CANARY_FOLDER/
+          mkdir -p portable/$CANARY_FOLDER/NexaGramForcePortable
+          touch portable/$CANARY_FOLDER/NexaGramForcePortable/.keep
+          cp -R NexaGram.app portable/$CANARY_FOLDER/
           (cd portable && zip -q -r ../$PORTABLE $CANARY_FOLDER)
 
           mkdir -p artifact/update artifact/portable
@@ -1329,7 +1329,7 @@ jobs:
           printf 'static const char *AlphaPrivateKey = "%s";\n' \
             "$(random_key)" > ../DesktopPrivate/alpha_private.h
 
-      - name: Telegram Desktop build.
+      - name: NexaGram build.
         run: |
           docker run --rm \
           -u $(id -u) \
@@ -1358,7 +1358,7 @@ jobs:
           # dump_syms is built into the centos_env image (breakpad), so
           # it runs there against the same binaries mounted from the
           # host; the release flow copies the tool out by hand instead.
-          for MODULE in 64Gram Updater; do
+          for MODULE in NexaGram Updater; do
             docker run --rm \
               -u $(id -u) \
               -v $PWD:/out -w /out \
@@ -1369,7 +1369,7 @@ jobs:
             mv $MODULE.sym symbols/$MODULE/$DEBUG_ID/
           done
           # TODO(canary-infra): upload symbols/ to R2 (see the Windows job).
-          ../../Telegram/build/minidebug.sh 64Gram
+          ../../Telegram/build/minidebug.sh NexaGram
 
       - name: Verify the update trust chain.
         run: |
@@ -1390,7 +1390,7 @@ jobs:
       - name: Pack v2 update.
         run: |
           cd out/Release
-          ./Packer -path 64Gram -path Updater -path TelegramHelpers/TelegramWidgetHelper \
+          ./Packer -path NexaGram -path Updater -path TelegramHelpers/TelegramWidgetHelper \
             -version ${{ needs.version.outputs.base }} \
             -channel canary-${{ needs.version.outputs.channel }} \
             -counter $CANARY_COUNTER \
@@ -1415,12 +1415,12 @@ jobs:
 
           # Portable-style first-install archive, tdata forced next to
           # the binary. The .keep file stops unpackers that skip empty
-          # folders from dropping TelegramForcePortable.
+          # folders from dropping NexaGramForcePortable.
           PORTABLE=td-portable-linux-x64-$CANARY_VERSION$CANARY_SUFFIX.tar.xz
           rm -rf portable
-          mkdir -p portable/$CANARY_FOLDER/TelegramForcePortable portable/$CANARY_FOLDER/TelegramHelpers
-          touch portable/$CANARY_FOLDER/TelegramForcePortable/.keep
-          cp 64Gram Updater portable/$CANARY_FOLDER/
+          mkdir -p portable/$CANARY_FOLDER/NexaGramForcePortable portable/$CANARY_FOLDER/TelegramHelpers
+          touch portable/$CANARY_FOLDER/NexaGramForcePortable/.keep
+          cp NexaGram Updater portable/$CANARY_FOLDER/
           cp TelegramHelpers/TelegramWidgetHelper portable/$CANARY_FOLDER/TelegramHelpers/
           tar -cJf $PORTABLE -C portable $CANARY_FOLDER
 
@@ -1498,12 +1498,12 @@ jobs:
           # Publishing unsigned binaries is never allowed: this is a hard
           # gate, not a warning. Every binary inside the update envelope
           # was verified with signtool right after signing in the build
-          # job; here the portable's 64Gram.exe is re-checked as the
+          # job; here the portable's NexaGram.exe is re-checked as the
           # publish-side witness.
           sudo apt-get update && sudo apt-get install -y osslsigncode
           unzip -q artifacts/portable/td-portable-win-x64-*.zip -d /tmp/winapp
-          if ! osslsigncode verify /tmp/winapp/${{ needs.version.outputs.folder }}/64Gram.exe; then
-            echo "::error::The portable 64Gram.exe is not Authenticode-signed."
+          if ! osslsigncode verify /tmp/winapp/${{ needs.version.outputs.folder }}/NexaGram.exe; then
+            echo "::error::The portable NexaGram.exe is not Authenticode-signed."
             exit 1
           fi
 
@@ -1588,10 +1588,10 @@ jobs:
           # spctl --assess on every bundle; this is the publish-side
           # witness. TODO(canary-infra): pin an apple-codesign (rcodesign)
           # release for full signature + staple verification on Linux:
-          #   rcodesign verify /tmp/macapp/Telegram/64Gram.app
+          #   rcodesign verify /tmp/macapp/Telegram/NexaGram.app
           unzip -q artifacts/portable/td-portable-mac-*.zip -d /tmp/macapp
-          if [ ! -d "/tmp/macapp/${{ needs.version.outputs.folder }}/64Gram.app/Contents/_CodeSignature" ]; then
-            echo "::error::The portable 64Gram.app has no code signature."
+          if [ ! -d "/tmp/macapp/${{ needs.version.outputs.folder }}/NexaGram.app/Contents/_CodeSignature" ]; then
+            echo "::error::The portable NexaGram.app has no code signature."
             exit 1
           fi
 

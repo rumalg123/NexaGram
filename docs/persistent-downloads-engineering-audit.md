@@ -64,6 +64,6 @@ The standalone target exercises real file IO, locks, parser boundaries, authenti
 
 The final review also updates the four earlier Windows guides for the public beta and includes the separately requested attachment-menu crash fix in `Telegram/SourceFiles/ui/controls/location_picker.cpp`.
 
-New files are `docs/persistent-downloads-engineering-audit.md`, `docs/persistent-downloads-release-checklist.md`, `docs/persistent-downloads-release-validation-windows.md`, `docs/resumable-downloads.md` and `tools/measure-persistent-downloads.ps1`.
+New files are `docs/persistent-downloads-engineering-audit.md`, `docs/persistent-downloads-release-validation-windows.md`, `docs/resumable-downloads.md` and `tools/measure-persistent-downloads.ps1`.
 
 Static checks covered the 19 feature paths, both localization references, build registration, all 27 fixture functions called by the standalone test entry point, PowerShell syntax for the sampler and seven guide examples, and the unrelated file's raw SHA-256. Whitespace and index checks were clean. The test-only child exit and injected storage failures live in the standalone fixture. Windows, macOS and other Unix branches were source-reviewed. Build and runtime evidence for the final portable artifact and numerical performance results are separate release gates.

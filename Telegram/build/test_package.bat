@@ -17,7 +17,7 @@ set "SignAppxPath=%HomePath%\..\..\DesktopPrivate\AppxSign.bat"
 set "ResourcesPath=%HomePath%\Resources"
 set "SolutionPath=%HomePath%\.."
 set "ReleasePath=%HomePath%\..\out\Debug"
-set "BinaryName=64Gram"
+set "BinaryName=NexaGram"
 
 if exist %ReleasePath%\AppX\ (
   echo Result folder out\Debug\AppX already exists!

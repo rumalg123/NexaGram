@@ -58,7 +58,7 @@ fi
 echo "Uploading version $AppVersionStrFull to Mac App Store.."
 ProjectPath="$HomePath/../out"
 ReleasePath="$ProjectPath/Release"
-BinaryName="64Gram"
+BinaryName="NexaGram"
 DeployPath="$ReleasePath/deploy/$AppVersionStrMajor/$AppVersionStrFull"
 PackageFile="$DeployPath/$BinaryName.pkg"
 

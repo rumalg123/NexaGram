@@ -1,7 +1,9 @@
-AppVersion         1002020
-AppVersionStrMajor 1.2
-AppVersionStrSmall 1.2.20
-AppVersionStr      1.2.20
+AppVersion         1000000
+AppVersionStrMajor 1.0
+AppVersionStrSmall 1.0
+AppVersionStr      1.0.0
 BetaChannel        1
 AlphaVersion       0
-AppVersionOriginal 1.2.20.beta
+AppVersionOriginal 1.0.0.beta
+UpstreamVersion    7.4.6
+Base64GramVersion  1.2.13

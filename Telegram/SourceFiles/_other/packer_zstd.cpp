@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
 	auto app = QCoreApplication(argc, argv);
 	auto parser = QCommandLineParser();
 	parser.setSingleDashWordOptionMode(QCommandLineParser::ParseAsLongOptions);
-	parser.setApplicationDescription(QStringLiteral("64Gram zstd update packer"));
+	parser.setApplicationDescription(QStringLiteral("NexaGram zstd update packer"));
 	parser.addHelpOption();
 	parser.addOptions({
 		{ "path", "File or directory to include (repeatable).", "path" },
@@ -135,10 +135,6 @@ int main(int argc, char *argv[]) {
 			return fail(QStringLiteral("Invalid input path or size: ") + full);
 		}
 		auto name = full.mid(root.size());
-		if (name.startsWith(u"64Gram.app/")) {
-			// Old macOS clients locate the helper under this archive path.
-			name.replace(0, 10, QString::fromLatin1("Telegram.app"));
-		}
 		const auto normalized = name.normalized(QString::NormalizationForm_C).toCaseFolded();
 		if (names.contains(normalized)) {
 			return fail(QStringLiteral("Duplicate input: ") + name);

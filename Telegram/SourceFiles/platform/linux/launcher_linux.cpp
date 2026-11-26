@@ -142,11 +142,7 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 		return false;
 	}
 
-	const auto executableName = (action == UpdaterLaunch::JustRelaunch && _updating
-		&& cExeName() == u"Telegram"_q
-		&& !QFile::exists(cExeDir() + cExeName())
-		&& QFile::exists(cExeDir() + u"64Gram"_q))
-		? u"64Gram"_q : cExeName();
+	const auto executableName = cExeName();
 	const auto justRelaunch = action == UpdaterLaunch::JustRelaunch
 		|| KSandbox::isInside();
 
@@ -236,7 +232,7 @@ bool Launcher::launchUpdater(UpdaterLaunch action) {
 			nullptr,
 			&error);
 		if (!result) {
-			ReportLaunchError(u"Could not relaunch Telegram: %1"_q.arg(
+			ReportLaunchError(u"Could not relaunch NexaGram: %1"_q.arg(
 				QString::fromUtf8(error.message_().c_str())));
 		}
 		return result;

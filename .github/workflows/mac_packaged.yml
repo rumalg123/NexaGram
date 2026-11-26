@@ -222,7 +222,7 @@ jobs:
           cmake --build build
           cmake --install build
 
-      - name: Telegram Desktop build.
+      - name: NexaGram build.
         if: env.ONLY_CACHE == 'false'
         run: |
           cd $REPO_NAME
@@ -239,15 +239,15 @@ jobs:
 
           cmake -Bbuild . -DTDESKTOP_API_TEST=ON $DEFINE
           cmake --build build
-          macdeployqt build/64Gram.app
-          codesign --remove-signature build/64Gram.app
+          macdeployqt build/NexaGram.app
+          codesign --remove-signature build/NexaGram.app
 
       - name: Move artifact.
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           cd $REPO_NAME/build
           mkdir artifact
-          mv 64Gram.app artifact/
+          mv NexaGram.app artifact/
       - uses: actions/upload-artifact@v7
         if: env.UPLOAD_ARTIFACT == 'true'
         name: Upload artifact.

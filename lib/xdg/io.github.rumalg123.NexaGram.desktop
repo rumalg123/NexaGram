@@ -1,11 +1,11 @@
 [Desktop Entry]
-Name=64Gram
+Name=NexaGram
 Comment=Unofficial desktop version of Telegram messaging app
-TryExec=64Gram
-Exec=64Gram -- %U
-Icon=org.telegram.desktop
+TryExec=NexaGram
+Exec=NexaGram -- %U
+Icon=io.github.rumalg123.NexaGram
 Terminal=false
-StartupWMClass=64Gram
+StartupWMClass=NexaGram
 Type=Application
 Categories=Chat;Network;InstantMessaging;Qt;
 MimeType=x-scheme-handler/tg;x-scheme-handler/tonsite;x-scheme-handler/ton;
@@ -17,6 +17,6 @@ X-GNOME-UsesNotifications=true
 X-GNOME-SingleWindow=true
 
 [Desktop Action quit]
-Exec=64Gram -quit
-Name=Quit 64Gram
+Exec=NexaGram -quit
+Name=Quit NexaGram
 Icon=application-exit

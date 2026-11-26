@@ -77,6 +77,13 @@ set(TDESKTOP_CANARY_METADATA_MSG_ID "0" CACHE STRING "Fixed metadata message id 
 set(TDESKTOP_FORK_UPDATE_URL "" CACHE STRING "HTTPS prefix for the fork's signed update feed.")
 set(TDESKTOP_FORK_UPDATE_TRUST_DIR "" CACHE PATH "Directory containing the fork's public update trust files.")
 
+if (TDESKTOP_FORK_UPDATE_URL MATCHES "^https://github[.]com/rumalg123/(tdesktop|NexaGram)/releases/latest/download/?$")
+    message(FATAL_ERROR "Configure NexaGram signed updates with https://github.com/rumalg123/NexaGram/releases/download/nexagram-feed or clear both fork update settings.")
+endif()
+if (TDESKTOP_FORK_UPDATE_URL STREQUAL "" AND NOT TDESKTOP_FORK_UPDATE_TRUST_DIR STREQUAL "")
+    set(TDESKTOP_FORK_UPDATE_URL "https://github.com/rumalg123/NexaGram/releases/download/nexagram-feed")
+endif()
+
 if (NOT TDESKTOP_FORK_UPDATE_URL STREQUAL "" OR NOT TDESKTOP_FORK_UPDATE_TRUST_DIR STREQUAL "")
     if (DESKTOP_APP_DISABLE_AUTOUPDATE)
         message(FATAL_ERROR "Fork update builds require DESKTOP_APP_DISABLE_AUTOUPDATE=OFF.")

@@ -10,7 +10,7 @@ include(cmake/lib_widget_helper_rust.cmake)
 if (build_macstore)
     set(widget_helper_identifier ${bundle_identifier}.WidgetHelper)
 else()
-    set(widget_helper_identifier com.tdesktop.Telegram.WidgetHelper)
+    set(widget_helper_identifier io.github.rumalg123.NexaGram.WidgetHelper)
 endif()
 
 add_executable(TelegramWidgetHelper)

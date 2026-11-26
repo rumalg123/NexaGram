@@ -100,7 +100,7 @@ jobs:
       - name: Free up some disk space.
         run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
 
-      - name: Telegram Desktop build.
+      - name: NexaGram build.
         if: env.ONLY_CACHE == 'false'
         run: |
           cd $REPO_NAME/Telegram
@@ -130,7 +130,7 @@ jobs:
         run: |
           cd $REPO_NAME/out/Debug
           mkdir artifact
-          mv 64Gram.app artifact/
+          mv NexaGram.app artifact/
           mv Updater artifact/
       - uses: actions/upload-artifact@v7
         if: env.UPLOAD_ARTIFACT == 'true'

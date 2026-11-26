@@ -4,9 +4,10 @@ on:
     types: [released]
 jobs:
   publish:
+    if: ${{ vars.WINGET_RELEASE_ENABLED == 'true' && !github.event.release.prerelease }}
     runs-on: windows-latest # action can only be run on windows
     steps:
       - uses: vedantmgoyal2009/winget-releaser@v1
         with:
-          identifier: 64Gram.64Gram
+          identifier: NexaGram.NexaGram
           token: ${{ secrets.WINGET_TOKEN }}

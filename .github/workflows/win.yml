@@ -246,7 +246,7 @@ jobs:
         shell: bash
         run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' -o -path '*/src/wallet_engine/*' ')' -type f ')' -o -empty ')' -delete
 
-      - name: Telegram Desktop build.
+      - name: NexaGram build.
         if: env.ONLY_CACHE == 'false'
         run: |
           cd %TBUILD%\%REPO_NAME%\Telegram
@@ -269,7 +269,7 @@ jobs:
         run: |
           set OUT=%TBUILD%\%REPO_NAME%\out\Debug
           mkdir artifact
-          move %OUT%\64Gram.exe artifact/
+          move %OUT%\NexaGram.exe artifact/
           move %OUT%\Updater.exe artifact/ || exit /b 1
           move %OUT%\modules artifact\ || exit /b 1
       - uses: actions/upload-artifact@v7

@@ -259,7 +259,6 @@ bool update() {
 	dirs.push_back(updDir);
 
 	deque<string> from, to, forcedirs;
-	auto renamed = false;
 
 	do {
 		string dir = dirs.front();
@@ -296,16 +295,8 @@ bool update() {
 						writeLog("Error: bad update, has Updater! '%s' equal '%s'", tofname.c_str(), updaterName.c_str());
 						delFolder();
 						return false;
-					} else if (tofname == exePath + "64Gram") {
-						if (exeName == "Telegram" || exeName == "64Gram") {
-							renamed = true;
-						} else {
-							tofname = exePath + exeName;
-						}
-					} else if (tofname == exePath + "Telegram" && exeName != "Telegram") {
-						string fullBinaryPath = exePath + exeName;
-						writeLog("Target binary found: '%s', changing to '%s'", tofname.c_str(), fullBinaryPath.c_str());
-						tofname = fullBinaryPath;
+					} else if (tofname == exePath + "NexaGram") {
+						tofname = exePath + exeName;
 					}
 					if (fname == readyFilePath) {
 						writeLog("Skipped ready file '%s'", fname.c_str());
@@ -373,24 +364,6 @@ bool update() {
 		}
 	}
 
-	if (renamed) {
-		const auto oldPath = exePath + "Telegram";
-		if (!writeprotected && exeName == "Telegram") {
-			const auto link = oldPath + ".update-link-" + std::to_string(getpid());
-			if (symlink("64Gram", link.c_str())) {
-				writeLog("Could not create the legacy relaunch link.");
-				return false;
-			}
-			if (rename(link.c_str(), oldPath.c_str())) {
-				unlink(link.c_str());
-				writeLog("Could not prepare the legacy relaunch link.");
-				return false;
-			}
-		} else if (unlink(oldPath.c_str()) && errno != ENOENT) {
-			writeLog("Could not remove the old executable: %s", oldPath.c_str());
-		}
-		exeName = "64Gram";
-	}
 	writeLog("Update succeed! Clearing folder..");
 	delFolder();
 	return true;
@@ -450,7 +423,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	if (exeName.empty() || exeName.find('/') != string::npos) {
-		exeName = "64Gram";
+		exeName = "NexaGram";
 	}
 	openLog();
 

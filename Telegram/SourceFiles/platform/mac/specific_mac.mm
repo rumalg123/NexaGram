@@ -274,7 +274,7 @@ void finish() {
 
 // macOS starts a quarantined bundle that was never moved by Finder from
 // a random read-only mount, so a portable build loses the
-// TelegramForcePortable folder it was shipped with and silently works on
+// NexaGramForcePortable folder it was shipped with and silently works on
 // the default installation's data. When the original location is known
 // and is the shipped portable layout, stripping the quarantine attribute
 // there is exactly what a Finder move would have done (Gatekeeper has
@@ -307,7 +307,7 @@ bool CheckAppTranslocation() {
 	const auto portable = !state.original.isEmpty()
 		&& QFileInfo(state.original + u"/Contents/Info.plist"_q).isFile()
 		&& QDir(QFileInfo(state.original).path()
-			+ u"/TelegramForcePortable"_q).exists();
+			+ u"/NexaGramForcePortable"_q).exists();
 	if (!relaunched
 		&& portable
 		&& RemoveQuarantineRecursively(state.original)

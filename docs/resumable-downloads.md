@@ -1,6 +1,6 @@
-# Resumable downloads in 64Gram
+# Resumable downloads in NexaGram
 
-Open **Settings → Advanced → Resumable Downloads**, enable **Enable resumable downloads**, and restart 64Gram. The initial setting is off. Open **Downloads** from Advanced or the chat-list download indicator.
+Open **Settings → Advanced → Resumable Downloads**, enable **Enable resumable downloads**, and restart NexaGram. The initial setting is off. Open **Downloads** from Advanced or the chat-list download indicator.
 
 Use **Save As** on a document you have permission to save. Pick an unused filename in a private folder you control. Native Telegram file saves can preserve progress, including eligible video and audio saves. Watching, playing or buffering media alone does not create a resumable save. Automatic caching, protected or disappearing media, web transfers, Mini Apps, exports and uploads are outside this feature.
 
@@ -14,15 +14,15 @@ Turning the feature off takes effect after a restart. Your incomplete saves rema
 
 Use a local filesystem with reliable file identity and rename support. Saved media and partial files inherit filesystem privacy. Successful checkpoints help after a process interruption. Power loss, device failure and storage that does not honor flushes can lose recent work. Keep completed files you need backed up.
 
-The beta reads historical v1 jobs. Their checksums can detect mismatched bytes, but cannot authenticate a v1 checkpoint that was altered together with the partial file. Resume those jobs only from a trusted folder. New jobs authenticate their checkpoints, and a registry containing one of these jobs uses v2. Finish or cancel such jobs in a compatible build before downgrading. If you already downgraded, close the older client and return to the compatible build with the same intact profile and download files. Use one client per profile.
+New NexaGram installations use a separate profile. Older 64Gram downloads remain in that client. Within a compatible profile, the beta can still read historical v1 jobs. Their checksums can detect mismatched bytes, but cannot authenticate a v1 checkpoint that was altered together with the partial file. Resume those jobs only from a trusted folder. New jobs authenticate their checkpoints, and a registry containing one of these jobs uses v2. Finish or cancel such jobs in a compatible build before downgrading. If you already downgraded, close the older client and return to the compatible build with the same intact profile and download files. Use one client per profile.
 
 ## Public beta release notes
 
-This public beta of an unofficial 64Gram fork adds persistent resumable downloads for eligible Telegram files, including direct MTProto and streaming-backed saves. Pause individual downloads and recover verified progress after closing 64Gram, a crash, or a computer restart. Video playback and the file transfer can continue independently.
+The NexaGram public beta adds persistent resumable downloads for eligible Telegram files, including direct MTProto and streaming-backed saves. Pause individual downloads and recover verified progress after closing NexaGram, a crash, or a computer restart. Video playback and the file transfer can continue independently.
 
 - Use **Pause All**, **Resume All**, or actions for selected downloads. Search by filename, filter by status, and see progress, speed, and estimated time remaining when available.
-- Enable the feature in **Settings → Advanced → Resumable Downloads**, then restart 64Gram. Automatic startup resume is optional and off by default. Manually paused downloads wait for you. Pause keeps the partial download. Cancel discards it.
-- 64Gram verifies the saved chunks before finishing and preserves any existing file at the destination. If the final name is occupied, move the existing file and retry.
+- Enable the feature in **Settings → Advanced → Resumable Downloads**, then restart NexaGram. Automatic startup resume is optional and off by default. Manually paused downloads wait for you. Pause keeps the partial download. Cancel discards it.
+- NexaGram verifies the saved chunks before finishing and preserves any existing file at the destination. If the final name is occupied, move the existing file and retry.
 - The feature covers eligible Telegram file saves, including supported video and audio. Web downloads, Mini Apps, exports, automatic caching, and protected or disappearing media are outside its scope. Recovery depends on continued access to the source, intact local files, and the filesystem. Keep older v1 jobs in trusted folders and finish or cancel new v2 jobs before downgrading.
 
-Report problems in the beta announcement thread with the build version, operating system, filesystem, and steps to reproduce. Share only relevant, redacted logs.
+Report problems in [NexaGram Issues](https://github.com/rumalg123/NexaGram/issues) with the build version, operating system, filesystem, and steps to reproduce. Share only relevant, redacted logs.

@@ -6,12 +6,12 @@ Use a separate test account and test profile. This guide begins with the playbac
 
 Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio. Select **Debug | x64**. Build **Telegram** and then **test_persistent_file_sink** in the **(tests)** group. The solution may update its project files when Visual Studio sees the new sources. Keep the existing build directory and dependencies.
 
-- Client executable is `D:\TBuild\tdesktop\out\Debug\64Gram.exe`.
+- Client executable is `D:\TBuild\tdesktop\out\Debug\NexaGram.exe`.
 - Test executable is `D:\TBuild\tdesktop\out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe`.
 
 ```powershell
 $root = 'D:\TBuild\tdesktop'
-$exe = Join-Path $root 'out\Debug\64Gram.exe'
+$exe = Join-Path $root 'out\Debug\NexaGram.exe'
 $tests = Join-Path $root 'out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe'
 $result = Start-Process -FilePath $tests -Wait -PassThru -WindowStyle Hidden
 if ($result.ExitCode -ne 0) { throw "Tests exited with code $($result.ExitCode)" }
@@ -23,7 +23,7 @@ Expect exit code `0`. The deterministic fixtures check generation changes, share
 ## Prepare an isolated profile and fixtures
 
 ```powershell
-$lab = Join-Path $env:LOCALAPPDATA '64Gram-Persistent-Streaming-Test'
+$lab = Join-Path $env:LOCALAPPDATA 'NexaGram-Persistent-Streaming-Test'
 $profile = Join-Path $lab 'profile'
 $originals = Join-Path $lab 'originals'
 $dest = Join-Path $lab 'downloads'
@@ -101,7 +101,7 @@ Start a fresh fixture for each case. For the first normal recovery case leave st
 | Pause while playback runs | Save the video, open its player, wait for the first checkpoint, then use **Pause download** from Downloads. Seek to an unbuffered part and change playback speed while paused. Resume from Downloads. | Playback remains usable without resetting position or speed. The file consumer detaches, keeps staging, and makes no new download-consumer requests while paused. Resume validates the source and attaches again. The final SHA-256 matches. |
 | Cancel while playback runs | Start another file transfer and play the source. Choose **Cancel download** for that transfer. Seek again while the player is open and restart the app afterward. | Playback continues. Cancel retires the GUID and removes its verified staging artifacts. The pending job does not return after restart. |
 | Close playback while downloading | Begin playback and download concurrently. Close the video viewer or stop audio playback with the playback controls. Leave the app open. | The same file consumer continues requesting chunks and completes. Normal completion creates one row. |
-| Normal exit and restart | While downloading, wait for a checkpoint and choose **Quit 64Gram** from the tray or press **Ctrl+Q**. Wait for the test PID to exit. Launch the same profile, open Downloads, and resume the interrupted row without opening the video. | The row and GUID return. Playback is unnecessary for recovery. Verified committed offsets are skipped and SHA-256 matches. |
+| Normal exit and restart | While downloading, wait for a checkpoint and choose **Quit NexaGram** from the tray or press **Ctrl+Q**. Wait for the test PID to exit. Launch the same profile, open Downloads, and resume the interrupted row without opening the video. | The row and GUID return. Playback is unnecessary for recovery. Verified committed offsets are skipped and SHA-256 matches. |
 | Pass through Windows restart | Start a fresh transfer, checkpoint and quit normally, then restart Windows. Reopen PowerShell, restore the variables above, and launch the same profile path. Resume from Downloads. | The job and valid staging progress survive. Completion has the expected hash and one history entry. |
 | Forced termination | Wait for a checkpoint and stop only the isolated PID using the command below. Relaunch and resume without opening the player. | The job restores from the last successful checkpoint. The client may request chunks written since that checkpoint again. The final hash matches. |
 | Automatic startup recovery | Quit while a different job is running. Set `$env:TDESKTOP_EXPERIMENTAL_RESUME_ON_STARTUP = '1'` and launch the same profile. | Observe an automatic resume decision followed by validation and streaming attachment. |

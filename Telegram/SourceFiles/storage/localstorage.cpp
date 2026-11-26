@@ -571,24 +571,7 @@ QString readAutoupdatePrefixRaw() {
 	if constexpr (Core::ForkUpdates) {
 		return QString::fromLatin1(Core::ForkUpdatePrefix);
 	}
-	//const auto &result = AutoupdatePrefix();
-	//if (!result.isEmpty()) {
-	//	return result;
-	//}
-	//QFile f(autoupdatePrefixFile());
-	//if (f.open(QIODevice::ReadOnly)) {
-	//	const auto value = QString::fromUtf8(f.readAll());
-	//	if (!value.isEmpty()) {
-	//		return AutoupdatePrefix(value);
-	//	}
-	//}
-
-	QString value = GetEnhancedString("update_url");
-	if (!value.isEmpty())
-	{
-		return value;
-	}
-	return AutoupdatePrefix("https://updates.64gr.am");
+	return {};
 }
 
 void writeAutoupdatePrefix(const QString &prefix) {
@@ -1529,7 +1512,7 @@ void CustomLangPack::fetchFinished() {
 	auto statusCode = _chkReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
 	if (statusCode == 404 && !langPackId.isEmpty() && !langPackBaseId.isEmpty() && !needFallback) {
-		LOG(("64Gram Language pack not found! Fallback to main language: %1...").arg(langPackBaseId));
+		LOG(("NexaGram Language pack not found! Fallback to main language: %1...").arg(langPackBaseId));
 		needFallback = true;
 		_chkReply->disconnect();
 		fetchCustomLangPack("", langPackBaseId);
@@ -1557,12 +1540,12 @@ void CustomLangPack::fetchError(QNetworkReply::NetworkError e) {
 		QString langPackId = Lang::GetInstance().id();
 
 		if (!langPackId.isEmpty() && !langPackBaseId.isEmpty() && !needFallback) {
-			LOG(("64Gram Language pack not found! Fallback to main language: %1...").arg(langPackBaseId));
+			LOG(("NexaGram Language pack not found! Fallback to main language: %1...").arg(langPackBaseId));
 			needFallback = true;
 			_chkReply->disconnect();
 			fetchCustomLangPack("", langPackBaseId);
 		} else {
-			LOG(("64Gram Language pack not found! Fallback to default language: English..."));
+			LOG(("NexaGram Language pack not found! Fallback to default language: English..."));
 			loadDefaultLangFile();
 			_chkReply = nullptr;
 		}

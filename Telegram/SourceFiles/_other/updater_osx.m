@@ -8,7 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #import <Cocoa/Cocoa.h>
 #include <sys/xattr.h>
 
-NSString *appName = @"64Gram.app";
+NSString *appName = @"NexaGram.app";
 NSString *appDir = nil;
 NSString *workDir = nil;
 
@@ -56,7 +56,7 @@ void RemoveQuarantineAttribute(NSString *path) {
 
 void RemoveQuarantineFromBundle(NSString *path) {
 	RemoveQuarantineAttribute(path);
-	RemoveQuarantineAttribute([path stringByAppendingString:@"/Contents/MacOS/64Gram"]);
+	RemoveQuarantineAttribute([path stringByAppendingString:@"/Contents/MacOS/NexaGram"]);
 	RemoveQuarantineAttribute([path stringByAppendingString:@"/Contents/Helpers/crashpad_handler"]);
 	RemoveQuarantineAttribute([path stringByAppendingString:@"/Contents/Helpers/TelegramWidgetHelper"]);
 	RemoveQuarantineAttribute([path stringByAppendingString:@"/Contents/Frameworks/Updater"]);
@@ -161,9 +161,6 @@ int main(int argc, const char * argv[]) {
 			writeLog([@"Ready file not found! Using old path: " stringByAppendingString: srcDir]);
 		}
 
-		if (![fileManager fileExistsAtPath:[srcDir stringByAppendingString:appName]]) {
-			appName = @"Telegram.app";
-		}
 		NSString *sourceBundle = [srcDir stringByAppendingString:appName];
 		NSString *oldVersionUpdaterPath = [appDirFull stringByAppendingString:@"/Contents/Frameworks/Updater"];
 		NSString *newVersionUpdaterPath = [sourceBundle stringByAppendingString:@"/Contents/Frameworks/Updater"];
@@ -172,15 +169,8 @@ int main(int argc, const char * argv[]) {
 			writeLog(@"Failed to restore the staged update helper.");
 			return -1;
 		}
-		BOOL renamed = [appRealName isEqualToString:@"Telegram.app"]
-			&& [fileManager fileExistsAtPath:[sourceBundle stringByAppendingString:@"/Contents/MacOS/64Gram"]];
-		NSString *destination = renamed ? [appDir stringByAppendingString:@"64Gram.app"] : appDirFull;
-		if (renamed && [fileManager fileExistsAtPath:destination]) {
-			writeLog(@"Cannot rename the bundle: 64Gram.app already exists.");
-			return -1;
-		}
 		NSString *prepared = [appDir stringByAppendingString:
-			[NSString stringWithFormat:@".64Gram-update-%@.app", [[NSUUID UUID] UUIDString]]];
+			[NSString stringWithFormat:@".NexaGram-update-%@.app", [[NSUUID UUID] UUIDString]]];
 		NSError *error = nil;
 		if (![fileManager copyItemAtPath:sourceBundle toPath:prepared error:&error]) {
 			writeLog([@"Could not prepare the new bundle: " stringByAppendingString:[error description]]);
@@ -193,13 +183,6 @@ int main(int argc, const char * argv[]) {
 			writeLog([@"Could not install the new bundle: " stringByAppendingString:[error description]]);
 			[fileManager removeItemAtPath:prepared error:nil];
 			return -1;
-		}
-		if (renamed) {
-			if ([fileManager moveItemAtPath:appDirFull toPath:destination error:&error]) {
-				appRealName = @"64Gram.app";
-			} else {
-				writeLog([@"Could not rename the installed bundle: " stringByAppendingString:[error description]]);
-			}
 		}
 		delFolder();
 	}

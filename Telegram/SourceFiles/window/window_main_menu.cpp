@@ -392,8 +392,8 @@ MainMenu::MainMenu(
 	parentResized();
 
 	_telegram->setMarkedText(tr::link(
-		u"64Gram"_q,
-		u"https://github.com/TDesktop-x64/tdesktop"_q));
+		u"NexaGram"_q,
+		u"https://github.com/rumalg123/NexaGram"_q));
 	_telegram->setLinksTrusted();
 	// The canary version is too long for the "Version {version}" form.
 	_version->setMarkedText(

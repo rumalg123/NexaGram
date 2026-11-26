@@ -413,7 +413,7 @@ using VerifiedPackage = std::variant<
 	return Core::Updates::VerifyUpdate(
 		bytes,
 		Core::BuildUpdateChannel,
-		AppBetaVersion || beta,
+		beta,
 		*target,
 		Core::RunningUpdateVersion(),
 		held,
@@ -658,7 +658,7 @@ const QString &PrivateDirectory::path() const {
 		}
 		const auto relative = prefix + name;
 		if (prefix.isEmpty()) {
-			const auto reserved = { "64Gram", "Telegram", "Updater", "ready", "tdata" };
+			const auto reserved = { "NexaGram", "Updater", "ready", "tdata" };
 			for (const auto word : reserved) {
 				if (AsciiLower(name) == AsciiLower(word) && name != word) {
 					return Fail(error, "A staged name aliases a reserved filename.");
@@ -672,7 +672,7 @@ const QString &PrivateDirectory::path() const {
 		const auto skipped = relative == "ready"
 			|| relative == "tdata"
 			|| relative.startsWith("tdata/");
-		const auto target = (relative == "Telegram" || relative == "64Gram")
+		const auto target = (relative == "NexaGram")
 			? executableName : relative;
 		if (!skipped) {
 			const auto key = AsciiLower(target);
@@ -682,7 +682,7 @@ const QString &PrivateDirectory::path() const {
 			destinations.insert(key);
 		}
 		if (S_ISDIR(info.st_mode)) {
-			if (relative == "64Gram" || relative == "Telegram" || relative == "Updater"
+			if (relative == "NexaGram" || relative == "Updater"
 				|| relative == "ready") {
 				return Fail(error, "A required staged file is a directory.");
 			}
@@ -702,7 +702,7 @@ const QString &PrivateDirectory::path() const {
 		if (!TrustedFile(info)
 			|| info.st_size < 0
 			|| (mode != 0644 && mode != 0755)
-			|| ((relative == "64Gram" || relative == "Telegram" || relative == "Updater")
+			|| ((relative == "NexaGram" || relative == "Updater")
 				&& mode != 0755)) {
 			return Fail(error, "A staged file has an unsafe type, owner or mode.");
 		} else if (skipped) {
@@ -1036,12 +1036,7 @@ const QString &PrivateDirectory::path() const {
 	if (!staged) {
 		return ReportError(error);
 	}
-	struct stat renamedInfo = {};
-	const auto renamed = !fstatat(staged.get(), "64Gram", &renamedInfo, AT_SYMLINK_NOFOLLOW);
-	const auto packagedName = renamed ? "64Gram" : "Telegram";
-	const auto destinationName = (renamed && installation->executableName == "Telegram")
-		? QByteArray("64Gram") : installation->executableName;
-	for (const auto required : { packagedName, "Updater" }) {
+	for (const auto required : { "NexaGram", "Updater" }) {
 		struct stat info = {};
 		if (fstatat(staged.get(), required, &info, AT_SYMLINK_NOFOLLOW)
 			|| !TrustedExecutable(info)) {
@@ -1055,7 +1050,7 @@ const QString &PrivateDirectory::path() const {
 	if (!InventoryDirectory(
 			staged.get(),
 			QByteArray(),
-			destinationName,
+			installation->executableName,
 			files,
 			destinations,
 			error)) {
@@ -1065,10 +1060,6 @@ const QString &PrivateDirectory::path() const {
 		if (!PreflightDestination(installation->directory.get(), file.path, error)) {
 			return ReportError(error);
 		}
-	}
-	if (renamed && destinationName == "64Gram"
-		&& !PreflightDestination(installation->directory.get(), "Telegram", error)) {
-		return ReportError(error);
 	}
 	destinations.clear();
 	const auto updater = std::ranges::find(

@@ -1,10 +1,10 @@
-#define MyAppShortName "64Gram"
-#define MyAppName "64Gram"
-#define MyAppGroupName "64Gram Desktop"
-#define MyAppPublisher "64Gram"
-#define MyAppURL "https://github.com/TDesktop-x64"
-#define MyAppExeName "64Gram.exe"
-#define MyAppId "9DB6C981-7FD2-41B5-AEF2-20C933FD3F21"
+#define MyAppShortName "NexaGram"
+#define MyAppName "NexaGram"
+#define MyAppGroupName "NexaGram"
+#define MyAppPublisher "NexaGram"
+#define MyAppURL "https://github.com/rumalg123/NexaGram"
+#define MyAppExeName "NexaGram.exe"
+#define MyAppId "4C9AB55C-6CE2-4A58-BC04-FCCEC46A6481"
 #define CurrentYear GetDateTimeString('yyyy','','')
 
 [Setup]
@@ -38,11 +38,11 @@ WizardStyle=modern
 
 #ifndef MyOutputBaseFilename
   #if MyBuildTarget == "winarm"
-    #define MyOutputBaseFilename "64Gram-arm64." + MyAppVersionFull
+    #define MyOutputBaseFilename "NexaGram-arm64." + MyAppVersionFull
   #elif MyBuildTarget == "win64"
-    #define MyOutputBaseFilename "64Gram-x64." + MyAppVersionFull
+    #define MyOutputBaseFilename "NexaGram-x64." + MyAppVersionFull
   #else
-    #define MyOutputBaseFilename "64Gram." + MyAppVersionFull
+    #define MyOutputBaseFilename "NexaGram." + MyAppVersionFull
   #endif
 #endif
 OutputBaseFilename={#MyOutputBaseFilename}
@@ -160,7 +160,6 @@ var ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
-    Exec(ExpandConstant('{app}\Updater.exe'), '-migrate', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     HasNewKey := RegKeyExists(HKEY_CURRENT_USER, 'Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{{#MyAppId}}_is1') or RegKeyExists(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#MyAppId}}_is1');
     HasOldKey := RegKeyExists(HKEY_LOCAL_MACHINE, 'SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{{#MyAppId}}_is1') or RegKeyExists(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{#MyAppId}}_is1');
     UserDesktopLnk := ExpandFileName(GetShellFolderByCSIDL(CSIDL_DESKTOPDIRECTORY, False) + '\{#MyAppShortName}.lnk');

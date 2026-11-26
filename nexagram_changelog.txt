@@ -1,0 +1,5 @@
+1.0.0 beta (26.11.26)
+
+- Introduce NexaGram as an unofficial Telegram Desktop client based on 64Gram.
+- Pause and resume eligible file saves, including after restarting the app.
+- Manage multiple downloads from the Downloads panel and configure recovery in Advanced settings.

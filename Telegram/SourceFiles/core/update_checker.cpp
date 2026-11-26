@@ -498,7 +498,7 @@ enum class ManifestAdoption {
 	auto verified = Updates::VerifyUpdate(
 		content,
 		BuildUpdateChannel,
-		AppBetaVersion || cInstallBetaVersion(),
+		cInstallBetaVersion(),
 		*target,
 		RunningUpdateVersion(),
 		HeldManifest(),
@@ -777,6 +777,14 @@ bool ParseCommonMap(
 		}
 	}
 	if (!bestAvailableVersion) {
+		if (ForkUpdates
+			&& !testing
+			&& !cAlphaVersion()
+			&& !cInstallBetaVersion()
+			&& !types.contains("stable")
+			&& types.value("beta").isObject()) {
+			return true;
+		}
 		LOG(("Update Error: No valid entry found for platform '%1'."
 			).arg(platform));
 		return false;
@@ -957,6 +965,9 @@ std::optional<QString> HttpChecker::parseResponse(
 	const auto result = ParseCommonMap(response, testing(), accumulate);
 	if (!result) {
 		return std::nullopt;
+	}
+	if (!bestAvailableVersion) {
+		return QString();
 	}
 	if (ForkUpdates
 		&& (!bestLink.startsWith(u'/') || bestLink.startsWith(u"//"_q))) {
@@ -1613,7 +1624,8 @@ FlatpakLoader::~FlatpakLoader() {
 } // namespace
 
 bool UpdaterDisabled() {
-	return UpdaterIsDisabled;
+	return UpdaterIsDisabled
+		|| (!ForkUpdates && !BuildIsCanary && !KSandbox::isFlatpak());
 }
 
 void SetUpdaterDisabledAtStartup() {
@@ -1840,7 +1852,7 @@ void Updater::stop() {
 }
 
 void Updater::start(bool forceWait) {
-	if (cExeName().isEmpty()) {
+	if (UpdaterDisabled() || cExeName().isEmpty()) {
 		return;
 	}
 
@@ -2186,11 +2198,8 @@ namespace {
 	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Updater.exe"_q);
 #elif defined Q_OS_MACOS // Q_OS_WIN
 	QString curUpdater = (cExeDir() + cExeName() + u"/Contents/Frameworks/Updater"_q);
-	const auto bundle = QDir(cWorkingDir() + u"tupdates/temp/64Gram.app"_q).exists()
-		? u"64Gram.app"_q
-		: u"Telegram.app"_q;
-	QFileInfo updater(cWorkingDir() + u"tupdates/temp/"_q + bundle
-		+ u"/Contents/Frameworks/Updater"_q);
+	QFileInfo updater(cWorkingDir()
+		+ u"tupdates/temp/NexaGram.app/Contents/Frameworks/Updater"_q);
 #else // Q_OS_MACOS
 	QString curUpdater = (cExeDir() + u"Updater"_q);
 	QFileInfo updater(cWorkingDir() + u"tupdates/temp/Updater"_q);
@@ -2406,21 +2415,7 @@ ReadyUpdateInstall prepareReadyUpdate() {
 
 void UpdateApplication() {
 	if (UpdaterDisabled()) {
-		const auto url = [&] {
-#ifdef OS_WIN_STORE
-			return "https://www.microsoft.com/en-us/store/p/telegram-desktop/9nztwsqntd0s";
-#elif defined OS_MAC_STORE // OS_WIN_STORE
-			return "https://itunes.apple.com/ae/app/telegram-desktop/id946399090";
-#else // OS_WIN_STORE || OS_MAC_STORE
-			if (KSandbox::isFlatpak()) {
-				return "https://flathub.org/apps/details/io.github.tdesktop_x64.TDesktop";
-			} else if (KSandbox::isSnap()) {
-				return "https://snapcraft.io/telegram-desktop";
-			}
-			return "https://desktop.telegram.org";
-#endif // OS_WIN_STORE || OS_MAC_STORE
-		}();
-		UrlClickHandler::Open(url);
+		UrlClickHandler::Open(u"https://github.com/rumalg123/NexaGram/releases"_q);
 	} else {
 		cSetAutoUpdate(true);
 		const auto window = Core::IsAppLaunched()

@@ -163,7 +163,7 @@ if %Build64% neq 0 (
 set "ReleasePath=%SolutionPath%\Release"
 set "DeployPath=%ReleasePath%\deploy\%AppVersionStrMajor%\%AppVersionStrFull%"
 set "SignPath=%HomePath%\..\..\DesktopPrivate\Sign.bat"
-set "BinaryName=64Gram"
+set "BinaryName=NexaGram"
 set "DropboxSymbolsPath=Y:\Telegram\symbols"
 set "DropboxSymbolsPathFallback=%HomePath%\..\..\Dropbox\Telegram\symbols"
 set "FinalReleasePath=Z:\Projects\backup\tdesktop"
@@ -453,6 +453,7 @@ timeout /t 10
 goto signupdate
 
 :packportable
+if not exist "%BinaryName%\NexaGramForcePortable" mkdir "%BinaryName%\NexaGramForcePortable" || goto error
 7z a -mx9 %PortableFile% %BinaryName%\ || goto packportableretry
 7z t %PortableFile% || goto packportableretry
 exit /b 0

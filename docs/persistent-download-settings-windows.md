@@ -10,7 +10,7 @@ Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio. Select **Debug | x
 $root = 'D:\TBuild\tdesktop'
 $out = Join-Path $root 'out'
 cmake --build $out --config Debug --target Telegram test_persistent_file_sink
-$exe = Join-Path $out 'Debug\64Gram.exe'
+$exe = Join-Path $out 'Debug\NexaGram.exe'
 $test = Join-Path $out 'test_persistent_file_sink\Debug\test_persistent_file_sink.exe'
 & $test
 if ($LASTEXITCODE -ne 0) { throw "Download tests failed with exit code $LASTEXITCODE" }
@@ -22,8 +22,8 @@ Expect exit code `0` and `Persistent file sink tests passed.` The new fixtures e
 
 ```powershell
 $root = 'D:\TBuild\tdesktop'
-$exe = Join-Path $root 'out\Debug\64Gram.exe'
-$lab = Join-Path $env:LOCALAPPDATA '64Gram-Download-Settings-Test'
+$exe = Join-Path $root 'out\Debug\NexaGram.exe'
+$lab = Join-Path $env:LOCALAPPDATA 'NexaGram-Download-Settings-Test'
 $profile = Join-Path $lab 'profile'
 $originals = Join-Path $lab 'originals'
 $downloads = Join-Path $lab 'downloads'
@@ -42,7 +42,7 @@ foreach ($key in $keys) {
 }
 
 $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut(
-    (Join-Path $lab 'Isolated 64Gram.lnk'))
+    (Join-Path $lab 'Isolated NexaGram.lnk'))
 $shortcut.TargetPath = $exe
 $shortcut.WorkingDirectory = Split-Path -Parent $exe
 $shortcut.Arguments = '-many -workdir "{0}"' -f $profile
@@ -52,7 +52,7 @@ explorer.exe $lab
 
 If Windows reports a persistent variable you added in an earlier test, remove that named variable in **System Properties > Advanced > Environment Variables** and sign out of Windows and back in so Explorer inherits the change. Later tests can set process variables in PowerShell without changing the values inherited by Explorer.
 
-Double-click **Isolated 64Gram** in File Explorer. This launch uses a normal shortcut, no environment overrides, and no `-debug` argument. Sign in with a test account and turn on **Ask download path** in **Settings > Advanced**. Upload the original fixtures as files to a test chat. Keep your originals and download destinations in separate directories. Open **Resumable Downloads** in the Advanced page. The **Downloads** row just above the subsection is a permanent entry point even when the chat-list indicator is hidden. A second test account is useful for the isolation case. See the [streaming guide](persistent-streaming-downloads-windows.md) for synthetic media and how to identify the backend.
+Double-click **Isolated NexaGram** in File Explorer. This launch uses a normal shortcut, no environment overrides, and no `-debug` argument. Sign in with a test account and turn on **Ask download path** in **Settings > Advanced**. Upload the original fixtures as files to a test chat. Keep your originals and download destinations in separate directories. Open **Resumable Downloads** in the Advanced page. The **Downloads** row just above the subsection is a permanent entry point even when the chat-list indicator is hidden. A second test account is useful for the isolation case. See the [streaming guide](persistent-streaming-downloads-windows.md) for synthetic media and how to identify the backend.
 
 ## Essential acceptance tests
 
@@ -119,11 +119,11 @@ Override detail codes are `0` absent, `1` explicit Off, `2` explicit On and `3` 
 | Multiple accounts and logout | Create jobs in two test accounts. Switch accounts during a transfer and change the global indicator setting. Use selected actions and log out of one test account. | The preferences are global. Jobs retain their owner and selected actions affect only the shown account scope. Logout retires its own jobs and leaves the other account's jobs available. |
 | Playback independence | Start a streaming-backed file save while playing the source. Pause and seek. Cancel another file save during playback. Close the player during a third transfer. | Playback survives file suspension and cancellation. Downloading continues after closing playback. |
 | Crash, verification and publication | Use separate attempts to stop only the isolated process after a checkpoint, while verifying, or near final publication. Use the exact PID and path guard in the [recovery guide](persistent-download-recovery-windows.md). Relaunch with the feature off where applicable, then enable and resume. | Committed data survives. Off prevents new source and chunk requests. Local publication of an already-complete file and terminal cleanup can reconcile while Off. The final file matches and appears once in history. |
-| Offline, minimized and tray startup | Quit with one interrupted job and one manual pause. Relaunch once offline and once with **Launch 64Gram minimized** enabled for the test run. Then reopen the isolated window. | Manual pause remains. Offline failures are retryable without a retry loop. Minimized launch and normal launch follow the same persisted settings. |
+| Offline, minimized and tray startup | Quit with one interrupted job and one manual pause. Relaunch once offline and once with **Launch NexaGram minimized** enabled for the test run. Then reopen the isolated window. | Manual pause remains. Offline failures are retryable without a retry loop. Minimized launch and normal launch follow the same persisted settings. |
 | Reset to defaults | With test jobs present, set the four switches to defaults and restart. On a separate disposable test profile, log out of its last account, relaunch and sign in again. | Returning the switches to defaults preserves the first profile's jobs. Last logout resets application preferences and retires its account's jobs under the existing account logout policy. |
 | Upgrade from Milestone 4 | In an isolated Milestone 4 profile, use its original environment flag to leave one paused and one interrupted job. Quit and launch the new client with that profile, the same destination paths and no overrides. | Default Off applies on first launch. The old jobs and committed bytes stay discoverable. Enable and restart to recover them. Completed history stays readable. |
 | Theme and localization | Check light, dark, a custom theme, RTL, different DPI scales and a narrow window. Use Tab and Space on the settings controls. | Native switches, help text, locks and confirmations remain usable and readable. The layout follows theme and text direction. |
-| Release smoke check | Use the existing x64 Release client, or check that `DESKTOP_APP_ENABLE_LTO` is `OFF` in `out\CMakeCache.txt` and manually build **Telegram** with **Release \| x64**. Point the isolated shortcut to `D:\TBuild\tdesktop\out\Release\64Gram.exe`. Remove overrides and repeat the fresh-launch and enable cases. | Permanent controls and an eligible save work in Release without developer flags. |
+| Release smoke check | Use the existing x64 Release client, or check that `DESKTOP_APP_ENABLE_LTO` is `OFF` in `out\CMakeCache.txt` and manually build **Telegram** with **Release \| x64**. Point the isolated shortcut to `D:\TBuild\tdesktop\out\Release\NexaGram.exe`. Remove overrides and repeat the fresh-launch and enable cases. | Permanent controls and an eligible save work in Release without developer flags. |
 | Existing panel regression | Exercise search, status filters, selected actions, completed-file actions, and ordinary downloading with a mixed list. | Results and scope match the [Downloads manager guide](persistent-download-manager-windows.md). Existing playback and completed-file actions work as before. |
 
 The standalone cases and local setting changes are deterministic. Telegram access failures, reference expiration, CDN usage, available video variants and exact crash timing depend on the server or transfer. Use the earlier guides for those checks.

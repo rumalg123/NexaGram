@@ -132,7 +132,7 @@ jobs:
           key: ${{ runner.OS }}-tdesktop-${{ matrix.defines || 'null' }}-${{ github.run_id }}
           restore-keys: ${{ runner.OS }}-tdesktop-${{ matrix.defines || 'null' }}-
 
-      - name: Telegram Desktop build.
+      - name: NexaGram build.
         if: env.ONLY_CACHE == 'false'
         run: |
           DEFINE=""
@@ -192,7 +192,7 @@ jobs:
       - name: Check.
         if: env.ONLY_CACHE == 'false'
         run: |
-          filePath="out/Debug/64Gram"
+          filePath="out/Debug/NexaGram"
           if test -f "$filePath"; then
             echo "Build successfully done! :)"
 
@@ -208,7 +208,7 @@ jobs:
         run: |
           cd out/Debug
           mkdir artifact
-          mv {64Gram,Updater} artifact/
+          mv {NexaGram,Updater} artifact/
       - uses: actions/upload-artifact@v7
         if: env.UPLOAD_ARTIFACT == 'true'
         name: Upload artifact.

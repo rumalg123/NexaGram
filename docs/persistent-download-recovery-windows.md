@@ -1,13 +1,13 @@
 # Persistent download recovery on Windows
 
-Use a separate 64Gram profile, an authorized test account, and non-sensitive files. Use a second test account for the isolation checks. Keep personal profiles and production download folders outside these tests. All commands below run in PowerShell.
+Use a separate NexaGram profile, an authorized test account, and non-sensitive files. Use a second test account for the isolation checks. Keep personal profiles and production download folders outside these tests. All commands below run in PowerShell.
 
 ## Build the existing solution
 
 1. Open `D:\TBuild\tdesktop\out\Telegram.slnx` in Visual Studio. Select **Debug** and **x64**.
 2. Build the **Telegram** project. Allow the solution's normal CMake regeneration if Visual Studio requests it for the new source entries. Keep the existing build tree and dependencies.
 3. Build the **test_persistent_file_sink** project in the **(tests)** group separately. This project is excluded from the default build.
-4. The client is `D:\TBuild\tdesktop\out\Debug\64Gram.exe`. The test program is `D:\TBuild\tdesktop\out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe`.
+4. The client is `D:\TBuild\tdesktop\out\Debug\NexaGram.exe`. The test program is `D:\TBuild\tdesktop\out\test_persistent_file_sink\Debug\test_persistent_file_sink.exe`.
 
 Run the standalone suite after building the test project.
 
@@ -25,8 +25,8 @@ Expect exit code 0. The suite uses isolated temporary directories, including a s
 
 ```powershell
 $root = 'D:\TBuild\tdesktop'
-$exe = Join-Path $root 'out\Debug\64Gram.exe'
-$lab = Join-Path $env:LOCALAPPDATA '64Gram-Persistent-Recovery-Test'
+$exe = Join-Path $root 'out\Debug\NexaGram.exe'
+$lab = Join-Path $env:LOCALAPPDATA 'NexaGram-Persistent-Recovery-Test'
 $profile = Join-Path $lab 'profile'
 $dest = Join-Path $lab 'downloads'
 $fixtures = Join-Path $lab 'originals'
@@ -125,7 +125,7 @@ if ($null -ne $repeated) { throw "Requested committed offsets $($repeated -join 
 
 ## Exit and terminate the test process
 
-For normal exit, choose **Quit 64Gram** from the tray icon or press **Ctrl+Q** in the isolated client. Closing the window can minimize to the tray. Verify that the PID has exited before restarting or editing fixture files.
+For normal exit, choose **Quit NexaGram** from the tray icon or press **Ctrl+Q** in the isolated client. Closing the window can minimize to the tray. Verify that the PID has exited before restarting or editing fixture files.
 
 For forced termination, launch with `$client = Start-RecoveryClient` and check the PID, executable, and isolated profile on its command line. Abort if the client was relaunched and the original PID no longer matches.
 
@@ -148,7 +148,7 @@ Start a separate fixture for each destructive case. Changes to test files below 
 | Scenario | UI actions or controlled fault | Pass criteria |
 |---|---|---|
 | New transfer and pause | Save a fresh fixture to the lab. After the first checkpoint, right-click its Downloads row and choose **Pause download**. Then choose **Resume download**. | Staging and sidecar persist. No final file appears during the pause. The same GUID continues. Verify SHA-256. |
-| Normal application exit with manual recovery | Set startup resume to `0`. While a fresh job is running and has a checkpoint, choose **Quit 64Gram** and relaunch from the same PowerShell. Open **Downloads** from the search UI or download tray. Right-click the interrupted row and choose **Resume download**. | No requests while waiting for Resume. Shutdown logs a suspension attempt. Resume validates the source and requests only missing offsets. Exactly one completed entry appears. |
+| Normal application exit with manual recovery | Set startup resume to `0`. While a fresh job is running and has a checkpoint, choose **Quit NexaGram** and relaunch from the same PowerShell. Open **Downloads** from the search UI or download tray. Right-click the interrupted row and choose **Resume download**. | No requests while waiting for Resume. Shutdown logs a suspension attempt. Resume validates the source and requests only missing offsets. Exactly one completed entry appears. |
 | Resume from original chat | Repeat the previous test. Return to the original message and select its **Download** action instead of the Downloads row. | The same GUID and staging pair are reused. One completion and no duplicate job. |
 | Forced process exit | Wait for one or more successful checkpoints. Force stop only the test process with the PID check. Relaunch and Resume. | The row returns on startup. Verified committed offsets are skipped. Data written after the last durable checkpoint may be requested again. |
 | Windows restart | Start a fresh eligible job, wait for a checkpoint, quit normally, then restart Windows. Open PowerShell and run **Prepare an isolated client** again using the same profile path. | The job remains available and completes with the original hash. The test profile and sources were retained. |

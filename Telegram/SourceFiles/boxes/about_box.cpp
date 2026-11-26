@@ -48,11 +48,11 @@ rpl::producer<TextWithEntities> Text2() {
 		lt_gpl_link,
 		rpl::single(tr::link(
 			"GNU GPL",
-			"https://github.com/TDesktop-x64/tdesktop/blob/dev/LICENSE")),
+			"https://github.com/rumalg123/NexaGram/blob/dev/LICENSE")),
 		lt_github_link,
 		rpl::single(tr::link(
 			"GitHub",
-			"https://github.com/TDesktop-x64/tdesktop")),
+			"https://github.com/rumalg123/NexaGram")),
 		tr::marked);
 }
 
@@ -66,7 +66,7 @@ rpl::producer<TextWithEntities> Text3() {
 } // namespace
 
 void AboutBox(not_null<Ui::GenericBox*> box) {
-	box->setTitle(u"64Gram"_q);
+	box->setTitle(u"NexaGram"_q);
 
 	auto layout = box->verticalLayout();
 
@@ -120,10 +120,10 @@ void AboutBox(not_null<Ui::GenericBox*> box) {
 			box,
 			tr::lng_about_upstream_versions(
 				tr::now,
-				lt_base,
-				QString::fromLatin1(Base64GramVersion),
 				lt_upstream,
-				QString::fromLatin1(UpstreamVersion)),
+				QString::fromLatin1(UpstreamVersion),
+				lt_base,
+				QString::fromLatin1(Base64GramVersion)),
 			st::aboutLabel),
 		st::boxRowPadding);
 	Ui::AddSkip(layout, st::aboutTopSkip);

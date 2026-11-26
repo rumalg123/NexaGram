@@ -51,7 +51,7 @@ Run both `Clone source code and prepare libraries` and `Build the project` secti
 
 In the initialized terminal, go to ***BuildPath*** and run
 
-    git clone --recurse-submodules https://github.com/rumalg123/tdesktop.git
+    git clone --recurse-submodules https://github.com/rumalg123/NexaGram.git tdesktop
     tdesktop\Telegram\build\prepare\win.bat
 
 Add `--branch BRANCH_NAME` to the clone command when building a specific branch. The preparation script builds Qt at the version pinned in `Telegram/build/qt_version.py`.
@@ -74,7 +74,19 @@ For `winarm` (ARM64):
 
 * Open ***BuildPath*\\tdesktop\\out\\Telegram.slnx** in Visual Studio 2026
 * Select Telegram project and press Build > Build Telegram (Debug and Release configurations)
-* `64Gram.exe` will be located in **D:\TBuild\tdesktop\out\Debug** (and **Release**)
+* `NexaGram.exe` will be located in **D:\TBuild\tdesktop\out\Debug** (and **Release**)
+
+### Signed updates and portable profiles
+
+The solution and CMake target are named **Telegram**. A normal Windows launch
+stores the profile under **%APPDATA%\NexaGram**. A folder named
+**NexaGramForcePortable** beside the executable selects a portable profile.
+Use a separate folder for each installation.
+
+An out directory configured for 64Gram may still contain its update URL. For a
+development build without a signed feed, set **TDESKTOP_FORK_UPDATE_URL** and
+**TDESKTOP_FORK_UPDATE_TRUST_DIR** to empty when reconfiguring. For a signed
+release, use the [NexaGram feed and its public trust](../Telegram/build/updates.md).
 
 ### Qt Visual Studio Tools
 

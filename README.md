@@ -1,64 +1,30 @@
-# 64Gram – Based on [Telegram Desktop](https://github.com/telegramdesktop/tdesktop)
+<p align="center">
+  <img src="docs/assets/nexagram-horizontal-color.svg" alt="NexaGram" width="420">
+</p>
 
-The source code is published under GPLv3 with OpenSSL exception, the license is available [here][license].
+# NexaGram
 
-[![Preview of 64Gram][preview_image]][preview_image_url]
+NexaGram is an unofficial Telegram desktop client built on [Telegram Desktop](https://github.com/telegramdesktop/tdesktop) and [64Gram](https://github.com/TDesktop-x64/tdesktop). It adds resumable downloads, download management, chat filters, and more control over message selection and forwarding.
 
-## Project Goal
+[Download NexaGram](https://github.com/rumalg123/NexaGram/releases) · [View all features](features.md) · [Report an issue](https://github.com/rumalg123/NexaGram/issues)
 
-Provide Windows 64bit build with some enhancements.
+## First launch
 
-~~Cause official Telegram Desktop do not provide Windows 64bit build, so [Project TDesktop x64](https://github.com/TDesktop-x64) is aimed at provide Windows native x64 build(with few enhancements) to everybody.~~
+The first public Windows x64 release is planned as **NexaGram 1.0.0 beta**. Install it in a separate directory or extract the portable ZIP to a new folder, then sign in. NexaGram uses its own profile and signed update feed. Existing Telegram Desktop and 64Gram installations keep their own profiles.
 
-## Roadmap
+Open **Settings → Advanced → Resumable Downloads** to enable [resumable downloads](docs/resumable-downloads.md), then restart NexaGram. The option to resume interrupted downloads on startup is separate and defaults to Off. **Install beta versions** in Advanced controls eligibility for future beta updates on installations configured for signed updates.
 
-No Roadmap? Yes.
+**About** shows the NexaGram version followed by the Telegram Desktop upstream version and the original 64Gram base version.
 
-## [Features](features.md)
+## Build from source
 
-## Supported systems
+- [Windows](docs/building-win.md)
+- [macOS](docs/building-mac.md)
+- [Linux using Docker](docs/building-linux.md)
+- [Update packaging and signed feeds](Telegram/build/updates.md)
 
-Windows 7 and above
+The English strings for inherited 64Gram enhancements are in [en.json](Telegram/Resources/langs/localization/en.json). NexaGram UI strings live in [lang.strings](Telegram/Resources/langs/lang.strings).
 
-Linux 64 bit
+## License and credits
 
-macOS > 10.12 and above
-
-The latest version is available on the [Release](https://github.com/TDesktop-x64/tdesktop/releases) page.
-
-## Localization
-
-If you want to translate this project, **Just Do It!**
-
-Create a Pull Request: [Localization Repo](https://github.com/TDesktop-x64/Localization).
-
-**Here is a project [translation template](https://github.com/TDesktop-x64/Localization/blob/master/en.json).**
-
-You can find a language ID on Telegram's log.txt
-
-For example: `[2022.04.23 10:37:45] Current Language pack ID: de, Base ID: `
-
-Then your language translation filename is `de.json` or something like that.
-
-***Note: Ignore base ID(base ID translation - Work in progress)***
-
-The embedded Telegram Widget engine uses [Nova](https://github.com/trynova/nova), licensed under the [Mozilla Public License 2.0](https://github.com/trynova/nova/blob/main/LICENSE.md).
-
-## Build instructions
-
-* [Windows][win]
-* [macOS][mac]
-* [GNU/Linux using Docker][linux]
-
-## Links
-
-* [Official Telegram Channel](https://t.me/tg_x64)
-* [Official discussion group](https://t.me/tg_x64_chat)
-
-[//]: # (LINKS)
-[license]: LICENSE
-[win]: docs/building-win.md
-[mac]: docs/building-mac.md
-[linux]: docs/building-linux.md
-[preview_image]: https://github.com/TDesktop-x64/tdesktop/blob/dev/docs/assets/preview.png "Preview of 64Gram Desktop"
-[preview_image_url]: https://raw.githubusercontent.com/TDesktop-x64/tdesktop/dev/docs/assets/preview.png
+NexaGram is distributed under the [GNU GPL v3 with the OpenSSL exception](LICENSE). It builds on Telegram Desktop, 64Gram and contributions from [Kotatogram](https://github.com/kotatogram/kotatogram-desktop). The Telegram Widget engine uses [Nova](https://github.com/trynova/nova), which is published under the [Mozilla Public License 2.0](https://github.com/trynova/nova/blob/main/LICENSE.md).
