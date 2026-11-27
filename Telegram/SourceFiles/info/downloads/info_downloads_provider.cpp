@@ -499,22 +499,25 @@ std::unique_ptr<BaseLayout> Provider::createLayout(
 				const auto &progress = view->transfer;
 				const auto middle = u" · "_q;
 				auto status = StatusText(progress.status);
+				auto rate = QString();
+				auto eta = QString();
 				const auto issue = IssueText(progress.issue);
 				if (!issue.isEmpty()) {
 					status += middle + issue;
 				} else if (progress.bytesPerSecond > 0) {
-					status += middle + tr::lng_downloads_transfer_rate(
-						tr::now, lt_size, Ui::FormatSizeText(progress.bytesPerSecond));
-					if (const auto eta = Storage::DownloadEta(
+					rate = TransferRateText(progress.bytesPerSecond);
+					if (const auto seconds = Storage::DownloadEta(
 							progress.written, view->total, progress.bytesPerSecond)) {
-						status += middle + tr::lng_downloads_transfer_eta(
-							tr::now, lt_duration, Ui::FormatDurationText(*eta));
+						eta = tr::lng_downloads_transfer_eta(
+							tr::now, lt_duration, Ui::FormatDurationText(*seconds));
 					}
 				}
 				return DocumentExternalLoading{
 					.ready = progress.written,
 					.total = view->total,
-					.status = status,
+					.status = std::move(status),
+					.rate = std::move(rate),
+					.eta = std::move(eta),
 					.context = view->sourceName.isEmpty()
 						? view->accountName
 						: view->accountName + middle + view->sourceName,

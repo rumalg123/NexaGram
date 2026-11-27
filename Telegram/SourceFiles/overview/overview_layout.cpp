@@ -1509,6 +1509,9 @@ void Document::initDimensions() {
 		_minh = _st.songPadding.top() + _st.songThumbSize + _st.songPadding.bottom();
 	} else {
 		_minh = _st.filePadding.top() + _st.fileThumbSize + _st.filePadding.bottom() + st::lineWidth;
+		if (_externalDiscard) {
+			_minh += st::normalFont->height;
+		}
 	}
 }
 
@@ -1706,22 +1709,41 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 		_name.drawLeftElided(p, nameleft, nametop, namewidth, _width);
 	}
 
+	auto status = _status.text();
+	auto transfer = QString();
+	if (pending) {
+		const auto middle = u" · "_q;
+		const auto percent = external->total > 0
+			? (qint64(100) * external->ready / external->total)
+			: 0;
+		status = external->status + middle + QString::number(percent)
+			+ u"%"_q + middle + status;
+		transfer = external->rate;
+		if (!external->eta.isEmpty()) {
+			const auto combined = transfer + middle + external->eta;
+			if (st::normalFont->width(combined) <= availwidth) {
+				transfer = combined;
+			} else {
+				status = transfer + middle + status;
+				transfer = external->eta;
+			}
+		}
+	}
 	if (clip.intersects(style::rtlrect(nameleft, statustop, availwidth, st::normalFont->height, _width))) {
 		p.setFont(st::normalFont);
 		p.setPen((isSong && selected) ? st::mediaInFgSelected : st::mediaInFg);
-		const auto percent = pending && external->total > 0
-			? (qint64(100) * external->ready / external->total)
-			: 0;
-		const auto status = pending
-			? (external->status + u" · "_q + QString::number(percent)
-				+ u"% · "_q + _status.text())
-			: _status.text();
 		p.drawTextLeft(nameleft, statustop, _width, st::normalFont->elided(status, availwidth));
 	}
 	if (pending && datetop >= 0) {
 		p.setFont(st::normalFont);
 		p.setPen(st::mediaInFg);
-		p.drawTextLeft(nameleft, datetop, _width,
+		auto contextTop = datetop;
+		if (!transfer.isEmpty()) {
+			p.drawTextLeft(nameleft, datetop, _width,
+				st::normalFont->elided(transfer, availwidth));
+			contextTop += st::normalFont->height;
+		}
+		p.drawTextLeft(nameleft, contextTop, _width,
 			st::normalFont->elided(external->context, availwidth));
 		if (availwidth > 0 && external->total > 0) {
 			const auto bar = style::rtlrect(

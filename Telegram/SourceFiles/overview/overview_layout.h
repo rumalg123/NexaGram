@@ -448,6 +448,8 @@ struct DocumentExternalLoading {
 	int64 ready = 0;
 	int64 total = 0;
 	QString status;
+	QString rate;
+	QString eta;
 	QString context;
 	bool pause = false;
 	bool actionable = true;

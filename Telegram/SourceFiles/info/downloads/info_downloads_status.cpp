@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/downloads/info_downloads_status.h"
 
 #include "lang/lang_keys.h"
+#include "ui/text/format_values.h"
 
 namespace Info::Downloads {
 
@@ -45,6 +46,12 @@ QString IssueText(Storage::DownloadIssue issue) {
 	case Issue::Transfer: return tr::lng_downloads_issue_transfer(tr::now);
 	}
 	return {};
+}
+
+QString TransferRateText(qint64 bytesPerSecond) {
+	auto size = Ui::FormatSizeText(bytesPerSecond);
+	size.replace(QChar(' '), QChar::Nbsp);
+	return tr::lng_downloads_transfer_rate(tr::now, lt_size, size);
 }
 
 QString FilterText(Storage::DownloadFilter filter) {

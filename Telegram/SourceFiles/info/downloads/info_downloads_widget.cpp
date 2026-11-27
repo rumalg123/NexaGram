@@ -114,11 +114,9 @@ protected:
 		const auto third = space / 3;
 		auto top = gap;
 		const auto available = std::max(width - 2 * gap, 0);
-		_scope->setText(st::normalFont->elided(_scopeText, available));
 		_scope->resizeToWidth(available);
 		_scope->moveToLeft(gap, top, width);
 		top += _scope->height();
-		_summary->setText(st::normalFont->elided(_summaryText, available));
 		_summary->resizeToWidth(available);
 		_summary->moveToLeft(gap, top, width);
 		top += _summary->height() + gap;
@@ -195,24 +193,25 @@ private:
 			rate += view.transfer.bytesPerSecond;
 		}
 		const auto middle = u" · "_q;
-		_scopeText = CountLabel(tr::lng_downloads_pending_scope(
+		auto scope = CountLabel(tr::lng_downloads_pending_scope(
 			tr::now, lt_user, _controller->session().user()->name()), pending);
 		if (_bytes.total) {
-			_scopeText += middle + Ui::FormatDownloadText(_bytes.written, _bytes.total)
+			scope += middle + Ui::FormatDownloadText(_bytes.written, _bytes.total)
 				+ middle + QString::number(_bytes.percent()) + u"%"_q;
 		}
-		_summaryText = CountLabel(StatusText(Status::Downloading), downloading)
+		auto summary = CountLabel(StatusText(Status::Downloading), downloading)
 			+ middle + CountLabel(FilterText(Filter::Paused), paused)
 			+ middle + CountLabel(FilterText(Filter::Interrupted), interrupted)
 			+ middle + CountLabel(FilterText(Filter::Failed), failed);
 		if (!Core::App().downloadSettings().activation().enabled) {
-			_summaryText = tr::lng_downloads_resumable_disabled(tr::now);
+			summary = tr::lng_downloads_resumable_disabled(tr::now);
 		} else if (rate > 0) {
-			_summaryText += middle + tr::lng_downloads_transfer_rate(
-				tr::now, lt_size, Ui::FormatSizeText(rate));
+			summary += middle + TransferRateText(rate);
 		}
-		_scope->setToolTip(_scopeText);
-		_summary->setToolTip(_summaryText);
+		_scope->setText(scope);
+		_scope->setToolTip(scope);
+		_summary->setText(summary);
+		_summary->setToolTip(summary);
 		if (controls) {
 			setButton(_filter.data(), (_currentFilter == Filter::All)
 				? tr::lng_downloads_filter_menu(tr::now)
@@ -326,8 +325,6 @@ private:
 	object_ptr<Ui::RoundButton> _first;
 	object_ptr<Ui::RoundButton> _second;
 	base::unique_qptr<Ui::PopupMenu> _menu;
-	QString _scopeText;
-	QString _summaryText;
 	std::vector<Id> _selected;
 	Storage::DownloadByteTotals _bytes;
 	Filter _currentFilter = Filter::All;
@@ -372,6 +369,9 @@ Widget::Widget(
 		scrollTo(request);
 	}, _inner->lifetime());
 	_management = Ui::CreateChild<ManagementBar>(this, controller, _inner);
+	_management->resizeToWidth(width());
+	_management->heightValue(
+	) | rpl::on_next([=] { layoutManagementBar(); }, lifetime());
 	const auto refresh = [=] {
 		_management->setVisible(Core::App().downloadSettings().activation().enabled
 			|| Core::App().downloadManager().hasPendingDownloads());
@@ -384,7 +384,6 @@ Widget::Widget(
 
 void Widget::layoutManagementBar() {
 	if (_management && !_management->isHidden()) {
-		_management->resizeToWidth(width());
 		_management->moveToLeft(0, height() - _management->height(), width());
 		setScrollBottomSkip(_management->height());
 	} else {
@@ -393,7 +392,10 @@ void Widget::layoutManagementBar() {
 }
 
 void Widget::resizeEvent(QResizeEvent *e) {
-	layoutManagementBar();
+	if (_management) {
+		_management->resizeToWidth(width());
+		layoutManagementBar();
+	}
 	ContentWidget::resizeEvent(e);
 }
 

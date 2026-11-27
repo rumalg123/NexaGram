@@ -13,6 +13,7 @@ namespace Info::Downloads {
 
 [[nodiscard]] QString StatusText(Storage::DownloadStatus status);
 [[nodiscard]] QString IssueText(Storage::DownloadIssue issue);
+[[nodiscard]] QString TransferRateText(qint64 bytesPerSecond);
 [[nodiscard]] QString FilterText(Storage::DownloadFilter filter);
 [[nodiscard]] QString ActionText(
 	Storage::DownloadAction action,
