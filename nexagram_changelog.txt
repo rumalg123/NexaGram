@@ -1,3 +1,12 @@
+1.0.1 (27.11.26)
+
+- Keep the full download speed and its unit visible in the resumable downloads summary.
+- Show the estimated time remaining on a separate line when a download row is too narrow.
+- Improve recovery when streaming media encounters a failed download request.
+- Fix a crash when pressing Escape with the attachment menu open.
+- Close the confirmation dialog after deleting a story draft.
+- Update the Telegram Desktop base to 7.4.7, including Windows text rendering and stability fixes.
+
 1.0.0 beta (26.11.26)
 
 - Introduce NexaGram as an unofficial Telegram Desktop client based on 64Gram.
