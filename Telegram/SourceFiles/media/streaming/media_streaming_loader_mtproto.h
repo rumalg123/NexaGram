@@ -61,6 +61,7 @@ private:
 
 	void cancelForOffset(int64 offset);
 	void addToQueueWithPriority();
+	[[nodiscard]] bool havePendingWork() const;
 
 	void checkStats();
 

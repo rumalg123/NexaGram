@@ -77,6 +77,10 @@ void LoaderMtproto::addToQueueWithPriority() {
 	addToQueue(_priority);
 }
 
+bool LoaderMtproto::havePendingWork() const {
+	return readyToRequest() || haveSentRequests();
+}
+
 void LoaderMtproto::stop() {
 	crl::on_main(this, [=] {
 		cancelAllRequests();
@@ -89,7 +93,7 @@ void LoaderMtproto::stop() {
 
 void LoaderMtproto::tryRemoveFromQueue() {
 	crl::on_main(this, [=] {
-		if (!readyToRequest() && !haveSentRequests()) {
+		if (!havePendingWork()) {
 			removeFromQueue();
 		}
 	});
@@ -131,8 +135,10 @@ void LoaderMtproto::setPriority(int priority) {
 		return;
 	}
 	_priority = priority;
-	if (readyToRequest() || haveSentRequests()) {
+	if (havePendingWork()) {
 		addToQueueWithPriority();
+	} else {
+		removeFromQueue();
 	}
 }
 

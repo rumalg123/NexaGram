@@ -1,8 +1,8 @@
 # NexaGram signed updates
 
-NexaGram starts at **1.0.0 beta**, based on Telegram Desktop **7.4.6** and 64Gram **1.2.13**. Update all three version fields from the repository root.
+NexaGram starts at **1.0.0 beta**, based on Telegram Desktop **7.4.7** and 64Gram **1.2.13**. Update all three version fields from the repository root.
 
-    python Telegram/build/set_version.py 1.0.0.beta 7.4.6 1.2.13
+    python Telegram/build/set_version.py 1.0.0.beta 7.4.7 1.2.13
 
 Build normal desktop releases with auto-update enabled, with a matching stable or beta value for the channel, and with the NexaGram public update trust directory. It contains the public Ed25519 root, its signed manifest, and the detached signature.
 
