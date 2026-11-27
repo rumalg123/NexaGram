@@ -8,6 +8,8 @@ NexaGram is an unofficial Telegram desktop client built on [Telegram Desktop](ht
 
 [Download NexaGram](https://github.com/rumalg123/NexaGram/releases) · [View all features](features.md) · [Report an issue](https://github.com/rumalg123/NexaGram/issues)
 
+[Telegram group](https://t.me/nexagram_chat) · [Telegram channel](https://t.me/nexagram_channel)
+
 ## First launch
 
 The first public Windows x64 release is planned as **NexaGram 1.0.0 beta**. Install it in a separate directory or extract the portable ZIP to a new folder, then sign in. NexaGram uses its own profile and signed update feed. Existing Telegram Desktop and 64Gram installations keep their own profiles.
