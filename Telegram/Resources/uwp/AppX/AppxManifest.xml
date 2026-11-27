@@ -10,7 +10,7 @@
   <Identity Name="io.github.rumalg123.NexaGram"
     ProcessorArchitecture="ARCHITECTURE"
     Publisher="CN=NexaGram"
-    Version="1.0.0.0" />
+    Version="1.0.1.0" />
   <Properties>
     <DisplayName>NexaGram</DisplayName>
     <PublisherDisplayName>NexaGram</PublisherDisplayName>
