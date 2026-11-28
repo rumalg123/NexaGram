@@ -160,7 +160,9 @@ public:
 	[[nodiscard]] bool hasPersistentDownload() const;
 	[[nodiscard]] QUuid persistentDownloadId() const;
 	[[nodiscard]] std::optional<Storage::DownloadTransferView> persistentTransferView() const;
-	[[nodiscard]] bool restorePendingDownload(const Storage::PendingDownload &job);
+	[[nodiscard]] bool restorePendingDownload(
+		const Storage::PendingDownload &job,
+		bool sourceChanged);
 	void suspendPendingForQuit(Fn<void()> done);
 	[[nodiscard]] bool persistentSourceAllowed(Data::FileOrigin origin) const;
 	[[nodiscard]] bool persistentDownloadPaused() const;
@@ -170,6 +172,8 @@ public:
 	void resumeDownload();
 	void resumeValidatedPendingDownload();
 	void stopPendingForUnavailableSource();
+	void releasePendingSource(
+		Fn<void(Storage::DownloadIssue, QByteArray, int64)> done);
 	void interruptPendingForLogout();
 	void cancel();
 	[[nodiscard]] bool cancelled() const;

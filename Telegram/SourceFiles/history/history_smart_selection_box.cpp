@@ -221,10 +221,7 @@ void WholeChatScan::pageReceived(const MTPmessages_Messages &result) {
 		if (!item && _selection.mayMatchUnloaded(message)) {
 			item = owner.addNewMessage(id, message, {}, NewMessageType::Existing);
 		}
-		if (item
-			&& item->canBeSelected()
-			&& (!_selection.add(item)
-				|| _selection.items().size() == MaxSelectedItems)) {
+		if (item && item->canBeSelected() && !_selection.add(item)) {
 			finish();
 			return;
 		}
@@ -295,7 +292,11 @@ void WholeChatScan::finish() {
 }
 
 void WholeChatScan::fail() {
-	_box->closeBox();
+	if (_selection.items().size() == MaxSelectedItems) {
+		finish();
+	} else {
+		_box->closeBox();
+	}
 	Ui::Toast::Show(tr::lng_smart_select_chat_failed(tr::now));
 }
 

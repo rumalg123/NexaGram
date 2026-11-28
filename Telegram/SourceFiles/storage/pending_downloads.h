@@ -39,6 +39,9 @@ struct PendingDownload {
 	qint64 started = 0;
 	qint64 updated = 0;
 	PendingDownloadState state = PendingDownloadState::Initializing;
+	quint64 backupPeer = 0;
+	qint64 backupMessage = 0;
+	quint64 backupChannelAccess = 0;
 };
 
 using PendingDownloadList = std::vector<PendingDownload>;

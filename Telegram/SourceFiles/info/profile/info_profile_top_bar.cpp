@@ -1874,6 +1874,8 @@ Fn<void()> TopBar::setupUserpicButton(
 						});
 					}
 				}
+			} else if (_hasStories && !GetEnhancedBool("hide_stories")) {
+				controller->openPeerStories(_peer->id);
 			} else {
 				openPhoto();
 			}

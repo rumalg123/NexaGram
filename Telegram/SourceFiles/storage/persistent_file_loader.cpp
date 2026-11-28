@@ -37,6 +37,7 @@ struct PersistentFileLoader::Persistent {
 		Suspending,
 		Suspended,
 		Failed,
+		SwitchingSource,
 		Publishing,
 	};
 
@@ -160,6 +161,7 @@ int64 PersistentFileLoader::currentOffset() const {
 
 bool PersistentFileLoader::canCancel() {
 	return !_persistent || (_persistent->state != Persistent::State::Publishing
+		&& _persistent->state != Persistent::State::SwitchingSource
 		&& Core::App().downloadManager().updatePending(
 			&session(),
 			_persistent->id,
@@ -198,6 +200,7 @@ std::optional<DownloadTransferView> PersistentFileLoader::persistentTransferView
 			? DownloadStatus::Paused : DownloadStatus::Interrupted;
 		case State::Failed: return (state.job.state == PendingState::Unavailable)
 			? DownloadStatus::Unavailable : DownloadStatus::Failed;
+		case State::SwitchingSource: return DownloadStatus::Resuming;
 		case State::Publishing: return DownloadStatus::Finalizing;
 		}
 		return DownloadStatus::Preparing;
@@ -231,6 +234,25 @@ void PersistentFileLoader::stopPersistentForUnavailableSource() {
 	}
 	_persistent->job.state = PendingState::Unavailable;
 	failPersistent(Sink::Result::TransferFailed);
+}
+
+void PersistentFileLoader::releasePersistentSource(
+		Fn<void(Sink::Result, QByteArray, int64)> done) {
+	auto &state = *_persistent;
+	state.state = Persistent::State::SwitchingSource;
+	stopPersistentRequests();
+	auto finished = crl::guard(static_cast<FileLoader*>(this),
+		[=, done = std::move(done)](Sink::Result result, QByteArray identity, int64 bytes) {
+			_finished = true;
+			done(result, std::move(identity), bytes);
+		});
+	state.worker.with([finished = std::move(finished)](Sink &sink) mutable {
+		const auto result = sink.suspend();
+		crl::on_main([finished = std::move(finished), result,
+				identity = sink.identity(), bytes = sink.committedSize()]() mutable {
+			finished(result, std::move(identity), bytes);
+		});
+	});
 }
 
 void PersistentFileLoader::interruptForRetirement() {

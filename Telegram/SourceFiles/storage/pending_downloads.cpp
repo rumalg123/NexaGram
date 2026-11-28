@@ -28,6 +28,7 @@ using State = PendingDownloadState;
 constexpr auto kMagic = quint32(0x36475052);
 constexpr auto kLegacyVersion = quint32(1);
 constexpr auto kAuthenticatedVersion = quint32(2);
+constexpr auto kBackupSourceVersion = quint32(3);
 constexpr auto kMaximumFileSize = qint64(4000) * 1024 * 1024;
 
 bool Valid(const PendingDownload &job) {
@@ -40,6 +41,9 @@ bool Valid(const PendingDownload &job) {
 		&& !IsPendingDownloadArtifactName(QFileInfo(job.file.destination).fileName())
 		&& job.displayName.size() <= 512
 		&& job.peer && job.message > 0 && job.message <= 0x7FFFFFFF
+		&& (job.backupPeer
+			? (job.backupMessage > 0 && job.backupMessage <= 0x7FFFFFFF)
+			: (!job.backupMessage && !job.backupChannelAccess))
 		&& job.document && job.started > 0 && job.updated > 0
 		&& (job.stagingIdentity.isEmpty()
 			|| job.stagingIdentity.size() == 16
@@ -94,7 +98,13 @@ QByteArray SerializePendingDownloads(
 	const auto keyed = std::any_of(jobs.begin(), jobs.end(), [](const auto &job) {
 		return !job.file.checkpointKey.isEmpty();
 	});
-	stream << kMagic << (keyed ? kAuthenticatedVersion : kLegacyVersion) << account << quint32(jobs.size());
+	const auto hasBackup = std::any_of(jobs.begin(), jobs.end(), [](const auto &job) {
+		return job.backupPeer != 0;
+	});
+	const auto version = hasBackup ? kBackupSourceVersion
+		: keyed ? kAuthenticatedVersion
+		: kLegacyVersion;
+	stream << kMagic << version << account << quint32(jobs.size());
 	auto ids = QSet<QUuid>();
 	for (const auto &job : jobs) {
 		if (!Valid(job) || ids.contains(job.file.id)) {
@@ -105,8 +115,11 @@ QByteArray SerializePendingDownloads(
 			<< quint8(job.file.replace) << job.stagingIdentity << job.peer
 			<< job.message << job.channelAccess << job.document
 			<< job.displayName << job.started << job.updated << quint8(job.state);
-		if (keyed) {
+		if (version >= kAuthenticatedVersion) {
 			stream << job.file.checkpointKey;
+		}
+		if (version == kBackupSourceVersion) {
+			stream << job.backupPeer << job.backupMessage << job.backupChannelAccess;
 		}
 	}
 	return (stream.status() == QDataStream::Ok
@@ -129,7 +142,8 @@ std::optional<PendingDownloadList> ParsePendingDownloads(
 	auto count = quint32();
 	stream >> magic >> version >> owner >> count;
 	if (stream.status() != QDataStream::Ok || magic != kMagic
-		|| (version != kLegacyVersion && version != kAuthenticatedVersion) || owner != account || count > kPendingDownloadLimit) {
+		|| version < kLegacyVersion || version > kBackupSourceVersion
+		|| owner != account || count > kPendingDownloadLimit) {
 		return std::nullopt;
 	}
 	auto jobs = PendingDownloadList();
@@ -153,11 +167,14 @@ std::optional<PendingDownloadList> ParsePendingDownloads(
 			return std::nullopt;
 		}
 		stream >> job.displayName >> job.started >> job.updated >> state;
-		if (version == kAuthenticatedVersion) {
+		if (version >= kAuthenticatedVersion) {
 			if (!FitsPersistentDownloadField(stream, 32)) {
 				return std::nullopt;
 			}
 			stream >> job.file.checkpointKey;
+		}
+		if (version == kBackupSourceVersion) {
+			stream >> job.backupPeer >> job.backupMessage >> job.backupChannelAccess;
 		}
 		job.file.replace = (replace == 1);
 		job.state = State(state);

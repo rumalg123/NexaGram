@@ -2050,7 +2050,6 @@ void TopBarWidget::updateOnlineDisplay() {
 	QString text;
 	const auto now = base::unixtime::now();
 	bool titlePeerTextOnline = false;
-	bool delayUpdate = false;
 	if (const auto user = peer->asUser()) {
 		if (session().supportMode()
 			&& !session().supportHelper().infoCurrent(user).text.empty()) {
@@ -2107,7 +2106,6 @@ void TopBarWidget::updateOnlineDisplay() {
 			} else {
 				QMutexLocker locker(&reqMutex);
 				if (!isTopic && lastChatRequest[QString::number(channel->id.value)].requestTime + 60 < now) { // Update every 60 seconds
-					delayUpdate = true;
 					_controller->session().api().request(MTPmessages_GetOnlines(
 							channel->input()
 					)).done(crl::guard(this, [=](const MTPChatOnlines &result) {
@@ -2139,7 +2137,7 @@ void TopBarWidget::updateOnlineDisplay() {
 			text = channel->isMegagroup() ? tr::lng_group_status(tr::now) : tr::lng_channel_status(tr::now);
 		}
 	}
-	if (_titlePeerText.toString() != text && !delayUpdate) {
+	if (_titlePeerText.toString() != text) {
 		_titlePeerText.setText(st::dialogsTextStyle, text);
 		_titlePeerTextOnline = titlePeerTextOnline;
 		updateMembersShowArea();

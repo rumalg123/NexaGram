@@ -244,6 +244,7 @@ base::options::toggle ViewProfileInChatsListContextMenu({
 	.id = kOptionViewProfileInChatsListContextMenu,
 	.name = "Add \"View Profile\"",
 	.description = "Add \"View Profile\" to context menu in chat list",
+	.defaultValue = true,
 });
 
 void SetActionText(not_null<QAction*> action, rpl::producer<QString> &&text) {
@@ -2008,12 +2009,11 @@ void Filler::fillContextMenuActions() {
 	addNewWindow();
 	addUngroup();
 	addHidePromotion();
-	addInfo();
+	if (ViewProfileInChatsListContextMenu.value()) {
+		addInfo();
+	}
 	addToggleArchive();
 	addTogglePin();
-	//if (ViewProfileInChatsListContextMenu.value()) {
-	//	addInfo();
-	//}
 	addToggleMuteSubmenu(false);
 	addToggleUnreadMark();
 	addToggleTopicClosed();
@@ -3255,15 +3255,17 @@ QPointer<Ui::BoxContent> ShowNewForwardMessagesBox(
 		MessageIdsList &&msgIds,
 		bool no_quote,
 		FnMut<void()>&& successCallback) {
-	const auto item = navigation->session().data().message(msgIds[0]);
+	const auto session = &navigation->session();
+	const auto items = session->data().idsToItems(msgIds);
+	if (items.empty()) {
+		return {};
+	}
+	const auto item = items.front();
 	const auto history = item->history();
-	const auto owner = &history->owner();
-	const auto session = &history->session();
 	const auto isGame = item->getMessageBot()
 		&& item->media()
 		&& (item->media()->game() != nullptr);
 
-	const auto items = owner->idsToItems(msgIds);
 	const auto hasCaptions = ranges::any_of(items, [](auto item) {
 		return item->media()
 			&& !item->originalText().text.isEmpty()
@@ -3288,26 +3290,34 @@ QPointer<Ui::BoxContent> ShowNewForwardMessagesBox(
 				|| Data::CanSend(thread, ChatRestriction::SendInline))
 			&& (!isGame || !thread->peer()->isBroadcast());
 	};
-	const auto weak = std::make_shared<base::weak_qptr<ShareBox>>();
-	*weak = Ui::show(Box<ShareBox>(ShareBox::Descriptor{
-						.session = session,
-						.submitCallback = ShareBox::DefaultForwardCallback(
-						   navigation->parentController()->uiShow(),
-			               history,
-			               msgIds,
-			               TimeId(0),
-			               no_quote,
-						   std::move(successCallback)),
-						.filterCallback = std::move(filterCallback),
-						.title = no_quote ? tr::lng_title_forward_as_copy() : tr::lng_title_multiple_forward(),
-						.forwardOptions = {
-							.sendersCount = ItemsForwardSendersCount(items),
-							.captionsCount = ItemsForwardCaptionsCount(items),
-							.show = !hasOnlyForcedForwardedInfo,
-						},
-						.moneyRestrictionError = WriteMoneyRestrictionError,
-					}), Ui::LayerOption::CloseOther);
-	return weak->get();
+	const auto captionsCount = ItemsForwardCaptionsCount(items);
+	const auto canConfigureForward = !HistoryView::Controls::HasRichPage(items)
+		|| HistoryView::Controls::CanHideForwardAuthor(session, items);
+	return Ui::show(Box<ShareBox>(ShareBox::Descriptor{
+		.session = session,
+		.countMessagesCallback = ShareBox::DefaultForwardCountMessages(
+			history,
+			msgIds),
+		.submitCallback = ShareBox::DefaultForwardCallback(
+			navigation->parentController()->uiShow(),
+			history,
+			std::move(msgIds),
+			TimeId(0),
+			no_quote,
+			std::move(successCallback)),
+		.filterCallback = std::move(filterCallback),
+		.title = no_quote
+			? tr::lng_title_forward_as_copy()
+			: tr::lng_title_multiple_forward(),
+		.forwardOptions = {
+			.sendersCount = no_quote ? 0 : ItemsForwardSendersCount(items),
+			.captionsCount = captionsCount,
+			.show = canConfigureForward && (no_quote
+				? (captionsCount > 0)
+				: !hasOnlyForcedForwardedInfo),
+		},
+		.moneyRestrictionError = WriteMoneyRestrictionError,
+	}), Ui::LayerOption::CloseOther).get();
 }
 
 base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(

@@ -4964,7 +4964,7 @@ void OverlayWidget::displayDocument(
 				&& initStreaming(startStreaming)) {
 			} else if (_document->isVideoFile()) {
 				auto peerId = _from ? _from->id : PeerId(0);
-				auto user = _history->session().data().peerLoaded(_from ? _from->id : PeerId(0));
+				const auto user = _document->owner().peerLoaded(peerId);
 				if (!blockExist(peerId.value) || (!GetEnhancedBool("blocked_user_spoiler_mode") && user && !user->isBlocked())) {
 					_documentMedia->automaticLoad(fileOrigin(), _message);
 				}
@@ -4974,7 +4974,7 @@ void OverlayWidget::displayDocument(
 				initThemePreview();
 			} else {
 				auto peerId = _from ? _from->id : PeerId(0);
-				auto user = _history->session().data().peerLoaded(_from ? _from->id : PeerId(0));
+				const auto user = _document->owner().peerLoaded(peerId);
 				if (!blockExist(peerId.value) || (!GetEnhancedBool("blocked_user_spoiler_mode") && user && !user->isBlocked())) {
 					_documentMedia->automaticLoad(fileOrigin(), _message);
 				}

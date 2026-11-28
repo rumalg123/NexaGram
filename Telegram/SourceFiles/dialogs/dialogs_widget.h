@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/section_widget.h"
 
 #include <array>
+#include <optional>
 
 class ChannelData;
 class QLabel;
@@ -223,6 +224,8 @@ private:
 	void setupMainMenuToggle();
 	void setChatStatusFilter(ChatStatusFilter filter);
 	void updateChatStatusToolbarTheme();
+	void scheduleChatStatusRecount();
+	void recountChatStatuses();
 	void updateChatStatusToolbar();
 	void setupMoreChatsBar();
 	void switchToChatsFilter(FilterId id);
@@ -398,6 +401,8 @@ private:
 	Ui::RpWidget *_statusToolbar = nullptr;
 	std::array<QToolButton*, 4> _statusButtons = {};
 	QLabel *_statusSummary = nullptr;
+	std::optional<std::array<int, 4>> _statusCounts;
+	bool _statusRecountScheduled = false;
 	InnerWidget *_inner = nullptr;
 	std::unique_ptr<Suggestions> _suggestions;
 	std::vector<std::unique_ptr<Suggestions>> _hidingSuggestions;

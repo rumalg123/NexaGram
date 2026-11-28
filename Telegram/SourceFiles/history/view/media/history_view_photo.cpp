@@ -498,7 +498,7 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 		}
 	}
 
-	const auto showEnlarge = false;
+	const auto showEnlarge = loaded && _enlarge;
 	const auto ttlCovered = _ttlCover
 		&& _spoiler
 		&& !_spoiler->revealed;

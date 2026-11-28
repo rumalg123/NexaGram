@@ -2013,23 +2013,24 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 		using Flag = MTPmessages_ForwardMessages::Flag;
 		auto commonSendFlags = MTPmessages_ForwardMessages::Flags(0);
 		if (no_quote) {
-			commonSendFlags = (options.scheduled ? Flag::f_schedule_date : Flag(0)) | Flag::f_drop_author;
+			commonSendFlags = Flag::f_drop_author
+				| (options.scheduled ? Flag::f_schedule_date : Flag(0));
 		} else {
 			commonSendFlags = Flag(0)
 				| Flag::f_with_my_score
 				| (options.scheduled ? Flag::f_schedule_date : Flag(0))
-			| ((options.scheduled && options.scheduleRepeatPeriod)
-				? Flag::f_schedule_repeat_period
-				: Flag(0))
+				| ((options.scheduled && options.scheduleRepeatPeriod)
+					? Flag::f_schedule_repeat_period
+					: Flag(0))
 				| ((forwardOptions != Data::ForwardOptions::PreserveInfo)
 					? Flag::f_drop_author
 					: Flag(0))
-				| ((forwardOptions == Data::ForwardOptions::NoNamesAndCaptions)
-					? Flag::f_drop_media_captions
-				: Flag(0))
-			| (videoTimestamp.has_value()
-				? Flag::f_video_timestamp
+				| (videoTimestamp.has_value()
+					? Flag::f_video_timestamp
 					: Flag(0));
+		}
+		if (forwardOptions == Data::ForwardOptions::NoNamesAndCaptions) {
+			commonSendFlags |= Flag::f_drop_media_captions;
 		}
 
 		const auto ranges = CollectForwardRanges(items);
@@ -2073,16 +2074,16 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 			const auto sublistPeer = needNewTopic
 				? nullptr
 				: thread->maybeSublistPeer();
-			const auto fromPeer = history->peer;
 			const auto requestDone = [=](
 					const MTPUpdates &updates,
-					mtpRequestId requestKey) {
+					mtpRequestId requestKey,
+					PeerId fromPeerId) {
 				if (showRecentForwardsToSelf) {
 					ApiWrap::ProcessRecentSelfForwards(
 						&threadHistory->session(),
 						updates,
 						peer->id,
-						history->peer->id);
+						fromPeerId);
 				}
 				state->requests.remove(requestKey);
 				if (state->requests.empty()) {
@@ -2123,6 +2124,7 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 				}
 			};
 			for (const auto &range : ranges) {
+				const auto fromPeer = range.items.front()->history()->peer;
 				const auto mtpMsgIds = ForwardRangeIds(
 					&history->session(),
 					range);
@@ -2201,7 +2203,7 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 					std::move(buildMessage),
 					[=](const MTPUpdates &updates,
 							const MTP::Response &) {
-						requestDone(updates, requestKey);
+						requestDone(updates, requestKey, fromPeer->id);
 					},
 					[=](const MTP::Error &error,
 							const MTP::Response &) {

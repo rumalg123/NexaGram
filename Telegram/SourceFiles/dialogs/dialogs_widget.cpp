@@ -119,6 +119,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QToolButton>
 #include <QtWidgets/QVBoxLayout>
 
+#include <unordered_set>
+
 namespace Dialogs {
 namespace {
 
@@ -352,19 +354,26 @@ Widget::Widget(
 	_inner->updated(
 	) | rpl::on_next([=] {
 		listScrollUpdated();
-		updateChatStatusToolbar();
+		scheduleChatStatusRecount();
 	}, lifetime());
 	rpl::merge(
 		session().data().chatsListChanges() | rpl::to_empty,
 		session().data().chatsListLoadedEvents() | rpl::to_empty,
+		session().data().chatListEntryRefreshes(
+		) | rpl::filter([](const auto &event) {
+			return event.existenceChanged
+				&& !event.filterId
+				&& event.key.history();
+		}) | rpl::to_empty,
 		session().changes().peerUpdates(
 			Data::PeerUpdate::Flag::Name
 			| Data::PeerUpdate::Flag::FullInfo
+			| Data::PeerUpdate::Flag::IsContact
 			| Data::PeerUpdate::Flag::UnavailableReason
 			| Data::PeerUpdate::Flag::Rights
 			| Data::PeerUpdate::Flag::ChannelAmIn) | rpl::to_empty
 	) | rpl::on_next([=] {
-		updateChatStatusToolbar();
+		scheduleChatStatusRecount();
 	}, lifetime());
 	updateChatStatusToolbar();
 
@@ -1684,26 +1693,25 @@ void Widget::updateChatStatusToolbarTheme() {
 			color(st::windowSubTextFg)));
 }
 
-void Widget::updateChatStatusToolbar() {
-	if (!_statusToolbar || _layout != Layout::Main) {
+void Widget::scheduleChatStatusRecount() {
+	if (_layout != Layout::Main || _statusRecountScheduled) {
 		return;
 	}
-	const auto visible = !_openedFolder && !_openedForum
-		&& !_openedCommunity && !_childList;
-	const auto visibilityChanged = (_statusToolbar->isHidden() == visible);
-	_statusToolbar->setVisible(visible);
-	if (visibilityChanged) {
-		updateControlsGeometry();
-	}
-	if (!visible) {
-		return;
-	}
+	_statusRecountScheduled = true;
+	Ui::PostponeCall(this, [=] {
+		_statusRecountScheduled = false;
+		_statusCounts.reset();
+		updateChatStatusToolbar();
+	});
+}
+
+void Widget::recountChatStatuses() {
 	auto counts = std::array<int, 4>{};
-	auto seen = base::flat_set<PeerId>();
+	auto seen = std::unordered_set<uint64>();
 	const auto append = [&](not_null<IndexedList*> list) {
 		for (const auto &row : *list) {
 			const auto peer = row->key().peer();
-			if (!peer || !seen.emplace(peer->id).second) {
+			if (!peer || !seen.emplace(peer->id.value).second) {
 				continue;
 			}
 			++counts[0];
@@ -1719,6 +1727,38 @@ void Widget::updateChatStatusToolbar() {
 	}
 	append(owner->contactsNoChatsList());
 
+	const auto labels = std::array{
+		u"All"_q, u"Deleted"_q, u"Unavailable"_q, u"Restricted"_q,
+	};
+	_statusCounts = counts;
+	for (auto i = 0; i != int(_statusButtons.size()); ++i) {
+		const auto button = _statusButtons[i];
+		const auto text = u"%1 (%2)"_q.arg(labels[i]).arg(counts[i]);
+		if (button->text() != text) {
+			button->setText(text);
+			button->setAccessibleName(
+				u"%1: %2 locally loaded chats"_q.arg(labels[i]).arg(counts[i]));
+		}
+	}
+}
+
+void Widget::updateChatStatusToolbar() {
+	if (!_statusToolbar || _layout != Layout::Main) {
+		return;
+	}
+	const auto visible = !_openedFolder && !_openedForum
+		&& !_openedCommunity && !_childList;
+	if (_statusToolbar->isHidden() == visible) {
+		_statusToolbar->setVisible(visible);
+		updateControlsGeometry();
+	}
+	if (!visible) {
+		return;
+	}
+	if (!_statusCounts) {
+		recountChatStatuses();
+	}
+	const auto &counts = *_statusCounts;
 	const auto status = (_searchState.tab == ChatSearchTab::MyMessages
 		&& !_searchState.inChat)
 		? ParseChatStatusFilter(_searchState.query)
@@ -1727,17 +1767,8 @@ void Widget::updateChatStatusToolbar() {
 		ChatStatusFilter::None, ChatStatusFilter::Deleted,
 		ChatStatusFilter::Unavailable, ChatStatusFilter::Restricted,
 	};
-	const auto labels = std::array{
-		u"All"_q, u"Deleted"_q, u"Unavailable"_q, u"Restricted"_q,
-	};
 	for (auto i = 0; i != int(_statusButtons.size()); ++i) {
 		const auto button = _statusButtons[i];
-		if (!button) {
-			continue;
-		}
-		button->setText(u"%1 (%2)"_q.arg(labels[i]).arg(counts[i]));
-		button->setAccessibleName(
-			u"%1: %2 locally loaded chats"_q.arg(labels[i]).arg(counts[i]));
 		button->setChecked(filterValues[i] == status
 			&& (status != ChatStatusFilter::None || _searchState.query.isEmpty()));
 	}
@@ -1781,9 +1812,6 @@ void Widget::setupMainMenuToggle() {
 }
 
 void Widget::setupStories() {
-	if (GetEnhancedBool("hide_stories")) {
-		return;
-	}
 	_stories->verticalScrollEvents(
 	) | rpl::on_next([=](not_null<QWheelEvent*> e) {
 		_scroll->viewportEvent(e);
@@ -1974,7 +2002,7 @@ void Widget::setupAddStory() {
 }
 
 void Widget::storiesToggleExplicitExpand(bool expand) {
-	if (GetEnhancedBool("hide_stories")) {
+	if (expand && GetEnhancedBool("hide_stories")) {
 		return;
 	}
 	if (_storiesExplicitExpand == expand) {
@@ -2510,7 +2538,7 @@ void Widget::changeOpenedFolder(Data::Folder *folder, anim::type animated) {
 		_openedFolder = folder;
 		_inner->changeOpenedFolder(folder);
 		updateChatStatusToolbar();
-		if (!GetEnhancedBool("hide_stories") && _stories) {
+		if (_stories) {
 			_stories->setShowTitle(folder != nullptr);
 			storiesExplicitCollapse();
 		}
@@ -3051,9 +3079,6 @@ void Widget::stopWidthAnimation() {
 }
 
 void Widget::updateStoriesVisibility(anim::type animated) {
-	if (GetEnhancedBool("hide_stories")) {
-		_stories = nullptr;
-	}
 	updateTopBarActionsVisibility(animated);
 	if (!_stories) {
 		return;
@@ -3065,7 +3090,8 @@ void Widget::updateStoriesVisibility(anim::type animated) {
 			&& _subsectionTopBar->searchMode());
 	const auto pulledDown = _scroll->position().overscroll
 		< -st::dialogsFilterSkip;
-	const auto hiddenInstant = _showAnimation
+	const auto hiddenInstant = GetEnhancedBool("hide_stories")
+		|| _showAnimation
 		|| _openedForum
 		|| _openedCommunity
 		|| showingSuggestionsDuringWidthAnimation()
@@ -4823,13 +4849,15 @@ void Widget::updateTopBarActionsVisibility(anim::type animated) {
 		|| showingSuggestionsDuringWidthAnimation()
 		|| _childList;
 	const auto hiddenAnimated = searchHidesTopBarContent();
-	const auto hasStories = _stories && !_stories->empty();
+	const auto hideStories = GetEnhancedBool("hide_stories");
+	const auto hasStories = !hideStories && _stories && !_stories->empty();
 	const auto lockHiddenInstant = hiddenInstant
 		|| !session().domain().local().hasLocalPasscode()
 		|| (hasStories
 			&& _scroll->position().overscroll
 				< -st::dialogsFilterSkip);
 	const auto storyHiddenInstant = hiddenInstant
+		|| hideStories
 		|| !_stories
 		|| hasStories
 		|| !session().data().stories().sourcesKnown(

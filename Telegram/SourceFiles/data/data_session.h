@@ -852,6 +852,9 @@ public:
 	void unregisterDocumentItem(
 		not_null<const DocumentData*> document,
 		not_null<HistoryItem*> item);
+	void enumerateDocumentItems(
+		not_null<const DocumentData*> document,
+		Fn<void(not_null<HistoryItem*>)> action) const;
 	void registerWebPageView(
 		not_null<const WebPageData*> page,
 		not_null<ViewElement*> view);

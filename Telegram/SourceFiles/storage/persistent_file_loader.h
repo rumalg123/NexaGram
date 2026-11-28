@@ -28,6 +28,8 @@ public:
 	void suspendPersistent(bool manual = true, Fn<void()> done = nullptr);
 	void resumePersistent(const QByteArray &reference);
 	void stopPersistentForUnavailableSource();
+	void releasePersistentSource(
+		Fn<void(PersistentFileSink::Result, QByteArray, int64)> done);
 	void interruptForRetirement();
 
 protected:

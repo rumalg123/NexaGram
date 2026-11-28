@@ -1499,13 +1499,24 @@ std::optional<Storage::DownloadTransferView> DocumentData::persistentTransferVie
 	return loader ? loader->persistentTransferView() : std::nullopt;
 }
 
-bool DocumentData::restorePendingDownload(const Storage::PendingDownload &job) {
+bool DocumentData::restorePendingDownload(
+		const Storage::PendingDownload &job,
+		bool sourceChanged) {
 	const auto origin = FullMsgId(PeerId(job.peer), MsgId(job.message));
 	if (_loader || job.document != id || job.file.size != size
 		|| !persistentSourceAllowed(origin)) {
 		return false;
 	}
-	auto reader = owner().streaming().sharedReader(this, origin, true);
+	auto reader = std::shared_ptr<Media::Streaming::Reader>();
+	if (sourceChanged) {
+		if (auto loader = createStreamingLoader(origin, true)) {
+			reader = std::make_shared<Media::Streaming::Reader>(
+				std::move(loader),
+				&owner().cacheBigFile());
+		}
+	} else {
+		reader = owner().streaming().sharedReader(this, origin, true);
+	}
 	if ((reader && !reader->matchesDocument(id, size))
 		|| (!reader && useStreamingLoader())) {
 		Storage::TracePendingDownload(job.file.id, "stream reader identity mismatch");
@@ -1590,6 +1601,18 @@ void DocumentData::stopPendingForUnavailableSource() {
 	if (const auto loader = persistentFileLoader()) {
 		loader->stopPersistentForUnavailableSource();
 	}
+}
+
+void DocumentData::releasePendingSource(
+		Fn<void(Storage::DownloadIssue, QByteArray, int64)> done) {
+	persistentFileLoader()->releasePersistentSource(
+		[=, done = std::move(done)](
+				Storage::PersistentFileSink::Result result,
+				QByteArray identity,
+				int64 bytes) mutable {
+			destroyLoader();
+			done(Storage::DownloadIssueFromSink(result), std::move(identity), bytes);
+		});
 }
 
 void DocumentData::cancel() {

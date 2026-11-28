@@ -684,7 +684,8 @@ std::vector<ForwardRange> CollectForwardRanges(
 			continue;
 		}
 		if (result.empty()
-			|| result.back().fromEphemeral != fromEphemeral) {
+			|| result.back().fromEphemeral != fromEphemeral
+			|| result.back().items.back()->history() != item->history()) {
 			result.push_back({ .fromEphemeral = fromEphemeral });
 		}
 		result.back().items.push_back(item);

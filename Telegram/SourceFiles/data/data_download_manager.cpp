@@ -204,6 +204,16 @@ void DownloadManager::trackSession(not_null<Main::Session*> session) {
 	) | rpl::on_next([=](const MessageUpdate &update) {
 		removed(update.item);
 	}, data.lifetime);
+	session->data().newItemAdded(
+	) | rpl::on_next([=](not_null<HistoryItem*> item) {
+		rememberPendingSource(item);
+	}, data.lifetime);
+	session->data().itemIdChanged(
+	) | rpl::on_next([=](const Session::IdChange &change) {
+		if (const auto item = session->data().message(change.newId)) {
+			rememberPendingSource(item);
+		}
+	}, data.lifetime);
 
 	session->account().sessionChanges(
 	) | rpl::filter(

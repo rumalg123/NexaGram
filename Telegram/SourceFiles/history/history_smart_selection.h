@@ -148,7 +148,7 @@ inline void SmartMessageSelection::resetRegexBudget() {
 inline bool SmartMessageSelection::finish(bool wholeChat) const {
 	if (_failed) {
 		Ui::Toast::Show(tr::lng_smart_select_regex_failed(tr::now));
-		return false;
+		return wholeChat && (_items.size() == MaxSelectedItems);
 	} else if (_items.empty()) {
 		Ui::Toast::Show(_range
 			? tr::lng_smart_select_no_range_matches(tr::now)

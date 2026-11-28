@@ -48,6 +48,15 @@ FullMsgId SourceId(const Job &job) {
 	return { PeerId(job.peer), MsgId(job.message) };
 }
 
+FullMsgId BackupSourceId(const Job &job) {
+	return { PeerId(job.backupPeer), MsgId(job.backupMessage) };
+}
+
+quint64 SourceChannelAccess(not_null<HistoryItem*> item) {
+	const auto channel = item->history()->peer->asChannel();
+	return channel ? channel->accessHash() : 0;
+}
+
 bool SameDestination(const QString &a, const QString &b) {
 #ifdef Q_OS_WIN
 	const auto normalize = [](QStringView path) {
@@ -174,6 +183,22 @@ DocumentData *PendingSourceDocument(HistoryItem *item, const Job &job) {
 		return variant->id == job.document;
 	});
 	return (i == end(variants)) ? nullptr : i->get();
+}
+
+bool RecordBackupSource(Job &job, not_null<HistoryItem*> item) {
+	const auto source = item->fullId();
+	if (source.peer == SourceId(job).peer || source == BackupSourceId(job)) {
+		return false;
+	}
+	const auto document = PendingSourceDocument(item, job);
+	if (!document || document->size != job.file.size
+		|| !document->persistentSourceAllowed(source)) {
+		return false;
+	}
+	job.backupPeer = source.peer.value;
+	job.backupMessage = source.msg.bare;
+	job.backupChannelAccess = SourceChannelAccess(item);
+	return true;
 }
 
 struct ScanResult {
@@ -351,7 +376,7 @@ std::optional<Storage::PendingDownload> DownloadManager::reservePending(
 	const auto started = computeNextStartDate();
 	auto key = QByteArray(32, Qt::Uninitialized);
 	base::RandomFill(key.data(), key.size());
-	const auto job = Job{
+	auto job = Job{
 		.file = { QUuid::createUuid(), clean, document->size, replace, std::move(key) },
 		.peer = origin.peer.value,
 		.message = origin.msg.bare,
@@ -361,6 +386,14 @@ std::optional<Storage::PendingDownload> DownloadManager::reservePending(
 		.started = started,
 		.updated = started,
 	};
+	const auto media = item->media();
+	if (const auto primary = media ? media->document() : nullptr) {
+		session->data().enumerateDocumentItems(primary, [&](auto candidate) {
+			if (RecordBackupSource(job, candidate)) {
+				Storage::TracePendingDownload(job.file.id, "backup source found");
+			}
+		});
+	}
 	auto changed = sessionData(session).pending;
 	changed.push_back(job);
 	if (!savePending(session, std::move(changed))) {
@@ -537,10 +570,15 @@ PendingDownloadView DownloadManager::makePendingView(
 	if (runtime.issue != Issue::None) {
 		result.transfer.issue = runtime.issue;
 	}
+	if (runtime.releasingSource) {
+		result.transfer.status = runtime.start ? Status::Resuming : Status::Paused;
+		return result;
+	}
 	if (job.state == State::Cancelling) {
 		result.transfer.status = Status::Cancelling;
 	} else if (job.state == State::Unavailable) {
 		result.transfer.status = Status::Unavailable;
+		result.transfer.issue = Issue::None;
 	} else if (runtime.stopPublication) {
 		result.transfer.status = Status::Finalizing;
 	} else if (!runtime.inspected) {
@@ -788,13 +826,138 @@ bool DownloadManager::resumePending(not_null<DocumentData*> document, FullMsgId 
 	const auto session = &document->session();
 	const auto &data = sessionData(session);
 	for (const auto &job : data.pending) {
-		if (job.document == document->id && SourceId(job) == origin
-			&& job.state != State::Cancelling) {
+		if (job.document != document->id || job.file.size != document->size
+			|| job.state == State::Cancelling) {
+			continue;
+		}
+		const auto item = session->data().message(origin);
+		if (job.state == State::Unavailable && item
+			&& document->persistentSourceAllowed(origin)) {
+			return switchPendingSource(
+				session,
+				job.file.id,
+				origin,
+				SourceChannelAccess(item),
+				true);
+		} else if (SourceId(job) == origin) {
 			requestPending(session, job.file.id);
 			return true;
 		}
 	}
 	return false;
+}
+
+void DownloadManager::rememberPendingSource(not_null<HistoryItem*> item) {
+	if (_pendingQuitting || !IsServerMsgId(item->id) || item->isScheduled()
+		|| item->isEphemeral() || !item->media() || !item->media()->document()) {
+		return;
+	}
+	const auto session = &item->history()->session();
+	const auto &current = sessionData(session).pending;
+	auto changed = Storage::PendingDownloadList();
+	for (const auto &job : current) {
+		if (job.state == State::Cancelling || job.state == State::Finalizing
+			|| job.state == State::Unavailable) {
+			continue;
+		}
+		auto next = job;
+		if (!RecordBackupSource(next, item)) {
+			continue;
+		}
+		if (changed.empty()) {
+			changed = current;
+		}
+		*FindJob(changed, job.file.id) = std::move(next);
+	}
+	if (!changed.empty()) {
+		const auto saved = savePending(session, std::move(changed));
+		Storage::TracePendingDownload({}, "backup sources recorded", int(saved));
+	}
+}
+
+bool DownloadManager::switchPendingSource(
+		not_null<Main::Session*> session,
+		const QUuid &id,
+		FullMsgId source,
+		quint64 channelAccess,
+		bool resume) {
+	const auto jobId = id;
+	const auto current = findPending(session, jobId);
+	if (_pendingQuitting || !current || !source.peer || !IsServerMsgId(source.msg)
+		|| current->state == State::Finalizing || current->state == State::Cancelling) {
+		return false;
+	}
+	auto &data = sessionData(session);
+	auto &runtime = data.pendingRuntime[jobId];
+	if (runtime.releasingSource) {
+		return false;
+	}
+	const auto active = runtime.active;
+	if (active && active->persistentDownloadId() == jobId) {
+		const auto view = active->persistentTransferView();
+		if (view && view->status == Storage::DownloadStatus::Finalizing) {
+			return false;
+		}
+	}
+	auto changed = data.pending;
+	const auto job = FindJob(changed, jobId);
+	job->peer = source.peer.value;
+	job->message = source.msg.bare;
+	job->channelAccess = channelAccess;
+	job->backupPeer = 0;
+	job->backupMessage = 0;
+	job->backupChannelAccess = 0;
+	job->state = job->stagingIdentity.isEmpty() ? State::Initializing
+		: (!resume && job->state == State::Paused) ? State::Paused
+		: State::Interrupted;
+	job->updated = computeNextStartDate();
+	if (!savePending(session, std::move(changed))) {
+		return false;
+	}
+	runtime.resolving = false;
+	runtime.start = runtime.resolve = resume;
+	runtime.issue = Storage::DownloadIssue::None;
+	runtime.inspectionFailed = false;
+	runtime.sourceChanged = true;
+	Storage::TracePendingDownload(jobId, "switched pending source");
+	if (active && active->persistentDownloadId() == jobId) {
+		runtime.releasingSource = true;
+		const auto row = ranges::find_if(data.downloading, [&](const DownloadingId &entry) {
+			return !entry.externalCancel && entry.object.document == active;
+		});
+		if (row != end(data.downloading)) {
+			remove(data, row);
+		}
+		const auto weak = base::make_weak(session.get());
+		active->releasePendingSource(crl::guard(this, [=](
+				Storage::DownloadIssue issue, QByteArray identity, int64 bytes) {
+			const auto session = weak.get();
+			const auto current = session ? findPending(session, jobId) : nullptr;
+			if (!current) {
+				return;
+			}
+			if (current->stagingIdentity.isEmpty() && !identity.isEmpty()
+				&& !identifyPending(session, jobId, std::move(identity))) {
+				issue = Storage::DownloadIssue::Checkpoint;
+			}
+			auto &runtime = sessionData(session).pendingRuntime[jobId];
+			runtime.active = nullptr;
+			runtime.releasingSource = false;
+			runtime.inspectedBytes = bytes;
+			if (issue != Storage::DownloadIssue::None) {
+				runtime.start = runtime.resolve = false;
+				runtime.inspectionFailed = true;
+				runtime.issue = issue;
+			}
+			pendingLoaderUpdated(true);
+			resolvePending();
+		}));
+	} else {
+		runtime.active = nullptr;
+	}
+	pendingLoaderUpdated(true);
+	resolvePending();
+	return true;
 }
 
 bool DownloadManager::hasActivePendingDownloads() const {
@@ -1052,6 +1215,7 @@ void DownloadManager::resolvePending() {
 		for (const auto &job : data.pending) {
 			const auto i = data.pendingRuntime.find(job.file.id);
 			if (i == end(data.pendingRuntime) || !i->second.inspected
+				|| i->second.releasingSource
 				|| !i->second.resolve || job.state == State::Cancelling
 				|| job.state == State::Unavailable) {
 				continue;
@@ -1076,7 +1240,8 @@ void DownloadManager::resolvePending() {
 				const auto available = [&] {
 					const auto found = weak.get() ? findPending(session, job.file.id) : nullptr;
 					return (_pendingQuitting || !found || found->state == State::Cancelling
-						|| found->state == State::Unavailable) ? nullptr : found;
+						|| found->state == State::Unavailable
+						|| SourceId(*found) != SourceId(job)) ? nullptr : found;
 				};
 				if (!available()) {
 					finish();
@@ -1112,7 +1277,10 @@ void DownloadManager::resolvePending() {
 					} else if (!reference->isEmpty()) {
 						document->refreshFileReference(*reference);
 						Storage::TracePendingDownload(job.file.id, "source and permissions validated");
-						if (!document->loading() && document->restorePendingDownload(current)) {
+						const auto sourceChanged = sessionData(session).pendingRuntime[
+							job.file.id].sourceChanged;
+						if (!document->loading()
+							&& document->restorePendingDownload(current, sourceChanged)) {
 							if (available()) {
 								sessionData(session).pendingRuntime[job.file.id].active = document;
 								addLoading({ .item = item, .document = document });
@@ -1129,6 +1297,15 @@ void DownloadManager::resolvePending() {
 					return;
 				}
 				if (unavailable) {
+					if (current.backupPeer && switchPendingSource(
+							session,
+							job.file.id,
+							BackupSourceId(current),
+							current.backupChannelAccess,
+							true)) {
+						finish();
+						return;
+					}
 					const auto saved = current.state != State::Finalizing
 						&& updatePending(session, job.file.id, State::Unavailable);
 					Storage::TracePendingDownload(job.file.id, "source unavailable", int(saved));
@@ -1233,7 +1410,16 @@ void DownloadManager::pendingSourceRemoved(
 	const auto id = document->persistentDownloadId();
 	remove(data, i);
 	const auto job = findPending(session, id);
-	if (!job || job->state == State::Finalizing || job->state == State::Cancelling) {
+	const auto view = document->persistentTransferView();
+	if (!job || job->state == State::Finalizing || job->state == State::Cancelling
+		|| (view && view->status == Storage::DownloadStatus::Finalizing)) {
+		return;
+	}
+	const auto resume = (job->state == State::Downloading
+		|| job->state == State::Initializing
+		|| data.pendingRuntime[id].start);
+	if (job->backupPeer && switchPendingSource(
+			session, id, BackupSourceId(*job), job->backupChannelAccess, resume)) {
 		return;
 	}
 	const auto changed = updatePending(session, id, State::Unavailable);

@@ -22,11 +22,13 @@ void FillForwardOptions(
 		rpl::lifetime &lifetime) {
 	Expects(optionsChanged != nullptr);
 
-	const auto names = createView(
-		(options.sendersCount == 1
-			? tr::lng_forward_show_sender
-			: tr::lng_forward_show_senders)(),
-		!options.dropNames);
+	const auto names = options.sendersCount
+		? createView(
+			(options.sendersCount == 1
+				? tr::lng_forward_show_sender
+				: tr::lng_forward_show_senders)(),
+			!options.dropNames).get()
+		: nullptr;
 	const auto captions = options.captionsCount
 		? createView(
 			(options.captionsCount == 1
@@ -39,22 +41,24 @@ void FillForwardOptions(
 		optionsChanged({
 			.sendersCount = options.sendersCount,
 			.captionsCount = options.captionsCount,
-			.dropNames = !names->checked(),
+			.dropNames = !names || !names->checked(),
 			.dropCaptions = (captions && !captions->checked()),
 		});
 	};
-	names->checkedChanges(
-	) | rpl::on_next([=](bool showNames) {
-		if (showNames && captions && !captions->checked()) {
-			captions->setChecked(true, anim::type::normal);
-		} else {
-			notify();
-		}
-	}, lifetime);
+	if (names) {
+		names->checkedChanges(
+		) | rpl::on_next([=](bool showNames) {
+			if (showNames && captions && !captions->checked()) {
+				captions->setChecked(true, anim::type::normal);
+			} else {
+				notify();
+			}
+		}, lifetime);
+	}
 	if (captions) {
 		captions->checkedChanges(
 		) | rpl::on_next([=](bool showCaptions) {
-			if (!showCaptions && names->checked()) {
+			if (!showCaptions && names && names->checked()) {
 				names->setChecked(false, anim::type::normal);
 			} else {
 				notify();

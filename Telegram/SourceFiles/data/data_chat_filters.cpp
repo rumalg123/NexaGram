@@ -489,11 +489,12 @@ void ChatFilters::requestToggleTags(bool value, Fn<void()> fail) {
 }
 
 void ChatFilters::received(const QVector<MTPDialogFilter> &list) {
+	const auto hideAllChats = GetEnhancedBool("hide_all_chats");
 	auto position = 0;
 	auto changed = false;
 	for (const auto &filter : list) {
 		auto parsed = ChatFilter::FromTL(filter, _owner);
-		if (GetEnhancedBool("hide_all_chats") && parsed.id() == 0 && list.size() > 1) {
+		if (hideAllChats && !parsed.id() && list.size() > 1) {
 			continue;
 		}
 		const auto b = begin(_list) + position;
@@ -517,9 +518,12 @@ void ChatFilters::received(const QVector<MTPDialogFilter> &list) {
 		applyRemove(position);
 		changed = true;
 	}
-	//if (!ranges::contains(begin(_list), end(_list), 0, &ChatFilter::id)) {
-	//	_list.insert(begin(_list), ChatFilter());
-	//}
+	if (_list.empty()
+		|| (!hideAllChats
+			&& !ranges::contains(_list, FilterId(), &ChatFilter::id))) {
+		_list.insert(begin(_list), ChatFilter());
+		changed = true;
+	}
 	if (changed || !_loaded || _reloading) {
 		_loaded = true;
 		_reloading = false;

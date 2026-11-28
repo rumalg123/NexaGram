@@ -11484,15 +11484,22 @@ void HistoryWidget::forwardSelected(bool keepSelection) {
 		return;
 	}
 	if (keepSelection) {
-		Window::ShowNewForwardMessagesBox(controller(), getSelectedItems(), false);
+		Window::ShowNewForwardMessagesBox(
+			controller(),
+			_list->getSelectedForwardItems(),
+			false);
 		return;
 	}
 	const auto weak = base::make_weak(this);
-	Window::ShowNewForwardMessagesBox(controller(), getSelectedItems(), false, [=] {
-		if (const auto strong = weak.get()) {
-			strong->clearSelected();
-		}
-	});
+	Window::ShowNewForwardMessagesBox(
+		controller(),
+		_list->getSelectedForwardItems(),
+		false,
+		[=] {
+			if (const auto strong = weak.get()) {
+				strong->clearSelected();
+			}
+		});
 }
 
 void HistoryWidget::forwardNoQuoteSelected(bool keepSelection) {
@@ -11500,15 +11507,22 @@ void HistoryWidget::forwardNoQuoteSelected(bool keepSelection) {
 		return;
 	}
 	if (keepSelection) {
-		Window::ShowNewForwardMessagesBox(controller(), getSelectedItems(), true);
+		Window::ShowNewForwardMessagesBox(
+			controller(),
+			_list->getSelectedForwardItems(),
+			true);
 		return;
 	}
 	const auto weak = base::make_weak(this);
-	Window::ShowNewForwardMessagesBox(controller(), getSelectedItems(), true, [=] {
-		if (const auto strong = weak.get()) {
-			strong->clearSelected();
-		}
-	});
+	Window::ShowNewForwardMessagesBox(
+		controller(),
+		_list->getSelectedForwardItems(),
+		true,
+		[=] {
+			if (const auto strong = weak.get()) {
+				strong->clearSelected();
+			}
+		});
 }
 
 void HistoryWidget::forwardSelectedToSavedMessages(bool keepSelection) {
@@ -11517,7 +11531,7 @@ void HistoryWidget::forwardSelectedToSavedMessages(bool keepSelection) {
 	}
 	const auto weak = base::make_weak(this);
 
-	const auto items = getSelectedItems();
+	const auto items = _list->getSelectedForwardItems();
 	if (items.empty()) {
 		return;
 	}

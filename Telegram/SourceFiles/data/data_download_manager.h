@@ -232,6 +232,8 @@ private:
 		bool start = false;
 		bool resolving = false;
 		bool startupResume = false;
+		bool releasingSource = false;
+		bool sourceChanged = false;
 		bool rowDirty = false;
 		bool displayingRate = false;
 		int64 inspectedBytes = 0;
@@ -271,6 +273,13 @@ private:
 		not_null<Main::Session*> session,
 		const Storage::PendingDownload &job);
 	void requestPending(not_null<Main::Session*> session, const QUuid &id);
+	void rememberPendingSource(not_null<HistoryItem*> item);
+	[[nodiscard]] bool switchPendingSource(
+		not_null<Main::Session*> session,
+		const QUuid &id,
+		FullMsgId source,
+		quint64 channelAccess,
+		bool resume);
 	void cancelPending(not_null<Main::Session*> session, const QUuid &id);
 	void erasePending(not_null<Main::Session*> session, const QUuid &id);
 	void pendingSourceRemoved(SessionData &data, std::vector<DownloadingId>::iterator i);

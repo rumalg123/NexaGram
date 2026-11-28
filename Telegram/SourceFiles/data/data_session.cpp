@@ -5205,6 +5205,17 @@ void Session::unregisterDocumentItem(
 	}
 }
 
+void Session::enumerateDocumentItems(
+		not_null<const DocumentData*> document,
+		Fn<void(not_null<HistoryItem*>)> action) const {
+	const auto i = _documentItems.find(document);
+	if (i != end(_documentItems)) {
+		for (const auto &item : i->second) {
+			action(item);
+		}
+	}
+}
+
 void Session::registerWebPageView(
 		not_null<const WebPageData*> page,
 		not_null<ViewElement*> view) {
