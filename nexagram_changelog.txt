@@ -1,3 +1,16 @@
+1.0.2 (28.11.26)
+
+- Continue resumable downloads from a verified forwarded copy in another chat if the original message is deleted, preserving saved progress and manual pauses.
+- Recover a download marked Source unavailable by choosing Save As on the surviving copy.
+- Show when whole-chat Smart Select reaches the 100-message limit.
+- Let users keep or hide media captions when forwarding as a copy. Fix forwarding selections from multiple chats.
+- Restore the text-send animation and remove the brief duplicate text seen when sending some messages.
+- Show the AI Tools button by default when available, with the Hide AI button option still available.
+- Restore the enlarge button and click ripple on eligible link-preview photos.
+- Keep chat status counts and group header details current, and respect the Hide All Chats and Hide Stories settings.
+- Enable View Profile by default in chat list menus and open available stories from profile photos when stories are shown.
+- Fix a media viewer crash when opening files without a chat history.
+
 1.0.1 (27.11.26)
 
 - Keep the full download speed and its unit visible in the resumable downloads summary.
